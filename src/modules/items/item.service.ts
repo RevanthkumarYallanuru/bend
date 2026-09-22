@@ -204,6 +204,7 @@ export async function createItemUnit(
         unit: data.unit,
         standard_price: data.standard_price,
         is_default: data.is_default ?? false,
+        is_weight_variable: data.is_weight_variable ?? false,
       },
     });
   });
@@ -268,6 +269,10 @@ export async function updateItemUnit(
 
         ...(data.is_default !== undefined && {
           is_default: data.is_default,
+        }),
+
+        ...(data.is_weight_variable !== undefined && {
+          is_weight_variable: data.is_weight_variable,
         }),
       },
     });

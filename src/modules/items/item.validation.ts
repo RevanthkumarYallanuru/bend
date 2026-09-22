@@ -53,6 +53,8 @@ export const createItemUnitSchema = z.object({
     .min(0, "Standard price cannot be negative"),
 
   is_default: z.boolean().optional(),
+
+  is_weight_variable: z.boolean().optional(),
 });
 
 export const updateItemUnitSchema = z.object({
@@ -70,6 +72,8 @@ export const updateItemUnitSchema = z.object({
     .optional(),
 
   is_default: z.boolean().optional(),
+
+  is_weight_variable: z.boolean().optional(),
 });
 
 export const itemUnitIdSchema = z.object({

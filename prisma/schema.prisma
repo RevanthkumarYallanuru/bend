@@ -44,24 +44,48 @@ model bill_deliveries {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model bill_items {
-  id                 BigInt      @id @default(autoincrement())
+  id                 BigInt              @id @default(autoincrement())
   bill_id            BigInt
   item_id            BigInt
   item_unit_id       BigInt?
-  item_name_snapshot String      @db.VarChar(150)
-  unit               String      @db.VarChar(30)
-  quantity           Decimal     @db.Decimal(14, 3)
-  standard_rate      Decimal     @db.Decimal(14, 2)
-  actual_rate        Decimal     @db.Decimal(14, 2)
-  discount           Decimal     @default(0) @db.Decimal(14, 2)
-  line_total         Decimal     @db.Decimal(14, 2)
-  created_at         DateTime    @default(now()) @db.Timestamptz(6)
-  bills              bills       @relation(fields: [bill_id], references: [id], onUpdate: NoAction, map: "fk_bill_items_bill")
-  items              items       @relation(fields: [item_id], references: [id], onUpdate: NoAction, map: "fk_bill_items_item")
-  item_units         item_units? @relation(fields: [item_unit_id], references: [id], onUpdate: NoAction, map: "fk_bill_items_unit")
+  item_name_snapshot String              @db.VarChar(150)
+  unit               String              @db.VarChar(30)
+  quantity           Decimal             @db.Decimal(14, 3)
+  standard_rate      Decimal             @db.Decimal(14, 2)
+  actual_rate        Decimal             @db.Decimal(14, 2)
+  discount           Decimal             @default(0) @db.Decimal(14, 2)
+  line_total         Decimal             @db.Decimal(14, 2)
+  /// Set only for variable-weight lines (see item_units.is_weight_variable)
+  /// — quantity/unit above already carry this same total in kg so
+  /// billing/print/PDF work unchanged; this column plus
+  /// bill_item_weights are purely the audit trail of how that total
+  /// was reached (which container weighed what).
+  total_weight_kg    Decimal?            @db.Decimal(14, 3)
+  created_at         DateTime            @default(now()) @db.Timestamptz(6)
+  bills              bills               @relation(fields: [bill_id], references: [id], onUpdate: NoAction, map: "fk_bill_items_bill")
+  items              items               @relation(fields: [item_id], references: [id], onUpdate: NoAction, map: "fk_bill_items_item")
+  item_units         item_units?         @relation(fields: [item_unit_id], references: [id], onUpdate: NoAction, map: "fk_bill_items_unit")
+  bill_item_weights  bill_item_weights[]
 
   @@index([bill_id], map: "idx_bill_items_bill")
   @@index([item_id], map: "idx_bill_items_item")
+}
+
+/// One row per weighed container (bag/sack/bundle/...) on a
+/// variable-weight bill line — e.g. 5 rows for "5 Bags" of Ragi, each
+/// holding that bag's actual weight in kg. Purely an audit trail: the
+/// owning bill_item's quantity/unit/line_total already reflect the
+/// summed total, so nothing else needs to read this table to bill or
+/// print correctly.
+model bill_item_weights {
+  id           BigInt     @id @default(autoincrement())
+  bill_item_id BigInt
+  sequence     Int
+  weight_kg    Decimal    @db.Decimal(10, 3)
+  bill_items   bill_items @relation(fields: [bill_item_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_bill_item_weights_bill_item")
+
+  @@unique([bill_item_id, sequence], map: "uq_bill_item_weights_item_seq")
+  @@index([bill_item_id], map: "idx_bill_item_weights_bill_item")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -204,16 +228,24 @@ model delivery_agents {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model item_units {
-  id             BigInt       @id @default(autoincrement())
-  item_id        BigInt
-  unit           String       @db.VarChar(30)
-  standard_price Decimal      @default(0) @db.Decimal(14, 2)
-  is_default     Boolean      @default(false)
-  is_active      Boolean      @default(true)
-  created_at     DateTime     @default(now()) @db.Timestamptz(6)
-  updated_at     DateTime     @default(now()) @db.Timestamptz(6)
-  bill_items     bill_items[]
-  items          items        @relation(fields: [item_id], references: [id], onUpdate: NoAction, map: "fk_item_units_item")
+  id                  BigInt       @id @default(autoincrement())
+  item_id             BigInt
+  unit                String       @db.VarChar(30)
+  standard_price      Decimal      @default(0) @db.Decimal(14, 2)
+  is_default          Boolean      @default(false)
+  is_active           Boolean      @default(true)
+  /// When true, this unit is a container (bag/sack/bundle/...) billed
+  /// by actual weight, not a flat per-container price: at billing
+  /// time, quantity means "how many containers", staff enters each
+  /// container's real weight, and standard_price/actual_rate are a
+  /// rate per kg applied to the summed weight. Defaults off so
+  /// existing units (e.g. a flat-rate "Bag" already priced per bag)
+  /// are never silently reinterpreted — an admin opts a unit in.
+  is_weight_variable  Boolean      @default(false)
+  created_at          DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime     @default(now()) @db.Timestamptz(6)
+  bill_items          bill_items[]
+  items               items        @relation(fields: [item_id], references: [id], onUpdate: NoAction, map: "fk_item_units_item")
 
   @@unique([item_id, unit], map: "uq_item_units_item_unit")
   @@index([item_id], map: "idx_item_units_item")

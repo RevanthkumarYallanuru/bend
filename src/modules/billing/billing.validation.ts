@@ -24,6 +24,15 @@ const billItemSchema = z.object({
     .number()
     .min(0, "Item discount cannot be negative")
     .default(0),
+
+  // Only meaningful when the chosen unit has is_weight_variable set —
+  // one actual weight (kg) per container, e.g. quantity: 5 "Bags"
+  // needs exactly 5 entries here. Ignored otherwise. The service
+  // layer re-validates the length/positivity itself rather than
+  // trusting this shape check alone.
+  weights: z
+    .array(z.coerce.number().positive("Each weight must be greater than zero"))
+    .optional(),
 });
 
 export const createBillSchema = z

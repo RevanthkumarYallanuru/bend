@@ -1138,6 +1138,197 @@ async function runBillingTests() {
         }
       }
     );
+
+    /*
+     * VARIABLE-WEIGHT UNITS (bags/sacks billed by actual kg weight)
+     */
+    let weightItemId: string | null = null;
+    let weightUnitId: string | null = null;
+
+    await runTest("Create weight-variable item unit fixture", async () => {
+      const itemRes = await axios.post(
+        `${API_URL}/items`,
+        {
+          item_code: `WEIGHT-ITEM-${Date.now()}`,
+          english_name: `Weight Test Item ${Date.now()}`,
+          category_id: testCategoryId,
+        },
+        { headers: authHeaders() }
+      );
+
+      if (itemRes.status !== 201) {
+        throw new Error("Failed to create weight-variable item fixture");
+      }
+
+      weightItemId = itemRes.data.data.id;
+      createdItemIds.push(BigInt(weightItemId!));
+
+      const unitRes = await axios.post(
+        `${API_URL}/items/${weightItemId}/units`,
+        {
+          unit: "Bags",
+          standard_price: 50,
+          is_default: true,
+          is_weight_variable: true,
+        },
+        { headers: authHeaders() }
+      );
+
+      if (unitRes.status !== 201 || unitRes.data.data.is_weight_variable !== true) {
+        throw new Error("Failed to create weight-variable unit fixture");
+      }
+
+      weightUnitId = unitRes.data.data.id;
+    });
+
+    let weightBillData: any = null;
+
+    await runTest(
+      "Create bill with variable-weight line computes total from container weights",
+      async () => {
+        const response = await axios.post(
+          `${API_URL}/bills`,
+          {
+            bill_type: "CUSTOMER",
+            customer_id: testCustomerId,
+            amount_paid: 0,
+            items: [
+              {
+                item_id: weightItemId,
+                item_unit_id: weightUnitId,
+                quantity: 5,
+                actual_rate: 50,
+                weights: [48, 51, 49.5, 50, 52],
+              },
+            ],
+          },
+          { headers: authHeaders() }
+        );
+
+        if (response.status !== 201) {
+          throw new Error(
+            `Expected 201, got ${response.status}: ${JSON.stringify(response.data)}`
+          );
+        }
+
+        weightBillData = response.data.data;
+        createdBillIds.push(BigInt(weightBillData.id));
+
+        const line = weightBillData.bill_items[0];
+
+        if (line.unit !== "kg") {
+          throw new Error(`Expected unit "kg", got "${line.unit}"`);
+        }
+
+        if (Number(line.quantity) !== 250.5) {
+          throw new Error(`Expected quantity 250.5, got ${line.quantity}`);
+        }
+
+        if (Number(line.total_weight_kg) !== 250.5) {
+          throw new Error(
+            `Expected total_weight_kg 250.5, got ${line.total_weight_kg}`
+          );
+        }
+
+        if (Number(line.line_total) !== 12525) {
+          throw new Error(`Expected line_total 12525, got ${line.line_total}`);
+        }
+      }
+    );
+
+    await runTest(
+      "Weight breakdown rows recorded, one per container",
+      async () => {
+        const line = weightBillData.bill_items[0];
+
+        const rows = await prisma.bill_item_weights.findMany({
+          where: { bill_item_id: BigInt(line.id) },
+          orderBy: { sequence: "asc" },
+        });
+
+        const expected = [48, 51, 49.5, 50, 52];
+
+        if (rows.length !== expected.length) {
+          throw new Error(
+            `Expected ${expected.length} weight rows, got ${rows.length}`
+          );
+        }
+
+        for (const [i, row] of rows.entries()) {
+          if (Number(row.weight_kg) !== expected[i]) {
+            throw new Error(
+              `Row ${i + 1}: expected ${expected[i]}kg, got ${row.weight_kg}kg`
+            );
+          }
+        }
+      }
+    );
+
+    await runTest(
+      "Reject weight-variable line when weight count doesn't match quantity",
+      async () => {
+        try {
+          await axios.post(
+            `${API_URL}/bills`,
+            {
+              bill_type: "CUSTOMER",
+              customer_id: testCustomerId,
+              amount_paid: 0,
+              items: [
+                {
+                  item_id: weightItemId,
+                  item_unit_id: weightUnitId,
+                  quantity: 5,
+                  actual_rate: 50,
+                  weights: [48, 51],
+                },
+              ],
+            },
+            { headers: authHeaders() }
+          );
+          throw new Error("Expected request to be rejected");
+        } catch (error: any) {
+          if (error.response?.status !== 400) {
+            throw new Error(
+              `Expected 400, got ${error.response?.status ?? error.message}`
+            );
+          }
+        }
+      }
+    );
+
+    await runTest(
+      "Reject non-integer container quantity for weight-variable unit",
+      async () => {
+        try {
+          await axios.post(
+            `${API_URL}/bills`,
+            {
+              bill_type: "CUSTOMER",
+              customer_id: testCustomerId,
+              amount_paid: 0,
+              items: [
+                {
+                  item_id: weightItemId,
+                  item_unit_id: weightUnitId,
+                  quantity: 2.5,
+                  actual_rate: 50,
+                  weights: [10, 12],
+                },
+              ],
+            },
+            { headers: authHeaders() }
+          );
+          throw new Error("Expected request to be rejected");
+        } catch (error: any) {
+          if (error.response?.status !== 400) {
+            throw new Error(
+              `Expected 400, got ${error.response?.status ?? error.message}`
+            );
+          }
+        }
+      }
+    );
   } finally {
     /*
      * CLEANUP TEST FIXTURES

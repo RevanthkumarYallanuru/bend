@@ -34,6 +34,9 @@ const billInclude = {
       items: {
         select: { telugu_name: true },
       },
+      bill_item_weights: {
+        orderBy: { sequence: "asc" as const },
+      },
     },
   },
   customers: true,
@@ -274,6 +277,10 @@ export async function createBill(
       actual_rate: Decimal;
       discount: Decimal;
       line_total: Decimal;
+      total_weight_kg?: Decimal;
+      bill_item_weights?: {
+        create: { sequence: number; weight_kg: Decimal }[];
+      };
     }[] = [];
 
     const resolvedItems = await resolveItemUnits(
@@ -288,7 +295,6 @@ export async function createBill(
     for (const [index, line] of data.items.entries()) {
       const { item, unit } = resolvedItems[index];
 
-      const quantity = decimalFrom(line.quantity);
       const itemDiscount = decimalFrom(line.discount);
       const standardRate = decimalFrom(unit.standard_price);
 
@@ -296,6 +302,60 @@ export async function createBill(
         line.actual_rate !== undefined
           ? decimalFrom(line.actual_rate)
           : standardRate;
+
+      if (unit.is_weight_variable) {
+        // Container count must be a whole number (you can't have "2.5
+        // bags"), and every container must have a real, entered weight
+        // — never trust a client-computed sum for the actual money math.
+        if (!Number.isInteger(line.quantity)) {
+          throw new BillingError(
+            `Quantity for "${item.english_name}" (${unit.unit}) must be a whole number of containers`
+          );
+        }
+
+        const weights = line.weights ?? [];
+
+        if (weights.length !== line.quantity) {
+          throw new BillingError(
+            `"${item.english_name}" needs exactly ${line.quantity} weight ${
+              line.quantity === 1 ? "entry" : "entries"
+            } (one per ${unit.unit}), got ${weights.length}`
+          );
+        }
+
+        const weightDecimals = weights.map((w) => decimalFrom(w));
+        const totalWeightKg = weightDecimals
+          .reduce((sum, w) => sum.plus(w), new Decimal(0))
+          .toDecimalPlaces(3, Decimal.ROUND_HALF_UP);
+
+        const computedLineTotal = lineTotal(
+          totalWeightKg,
+          actualRate,
+          itemDiscount
+        );
+
+        preparedItems.push({
+          item_id: item.id,
+          item_unit_id: unit.id,
+          item_name_snapshot: item.english_name,
+          unit: "kg",
+          quantity: totalWeightKg,
+          standard_rate: standardRate,
+          actual_rate: actualRate,
+          discount: itemDiscount,
+          line_total: computedLineTotal,
+          total_weight_kg: totalWeightKg,
+          bill_item_weights: {
+            create: weightDecimals.map((weight_kg, i) => ({
+              sequence: i + 1,
+              weight_kg,
+            })),
+          },
+        });
+        continue;
+      }
+
+      const quantity = decimalFrom(line.quantity);
 
       const computedLineTotal = lineTotal(
         quantity,
