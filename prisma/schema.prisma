@@ -1,0 +1,371 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model audit_logs {
+  id          BigInt       @id @default(autoincrement())
+  business_id BigInt
+  user_id     BigInt?
+  action      audit_action
+  entity_type String       @db.VarChar(50)
+  entity_id   BigInt
+  old_data    Json?
+  new_data    Json?
+  created_at  DateTime     @default(now()) @db.Timestamptz(6)
+  businesses  businesses   @relation(fields: [business_id], references: [id], onUpdate: NoAction, map: "fk_audit_business")
+  users       users?       @relation(fields: [user_id], references: [id], onUpdate: NoAction, map: "fk_audit_user")
+
+  @@index([created_at], map: "idx_audit_created_at")
+  @@index([entity_type, entity_id], map: "idx_audit_entity")
+}
+
+model bill_deliveries {
+  id                BigInt           @id @default(autoincrement())
+  bill_id           BigInt           @unique(map: "uq_bill_delivery")
+  delivery_agent_id BigInt?
+  status            delivery_status  @default(GENERATED)
+  sent_at           DateTime?        @db.Timestamptz(6)
+  reached_at        DateTime?        @db.Timestamptz(6)
+  cleared_at        DateTime?        @db.Timestamptz(6)
+  notes             String?
+  created_at        DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime         @default(now()) @db.Timestamptz(6)
+  delivery_agents   delivery_agents? @relation(fields: [delivery_agent_id], references: [id], onUpdate: NoAction, map: "fk_bill_deliveries_agent")
+  bills             bills            @relation(fields: [bill_id], references: [id], onUpdate: NoAction, map: "fk_bill_deliveries_bill")
+
+  @@index([delivery_agent_id], map: "idx_delivery_agent")
+  @@index([status], map: "idx_delivery_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model bill_items {
+  id                 BigInt      @id @default(autoincrement())
+  bill_id            BigInt
+  item_id            BigInt
+  item_unit_id       BigInt?
+  item_name_snapshot String      @db.VarChar(150)
+  unit               String      @db.VarChar(30)
+  quantity           Decimal     @db.Decimal(14, 3)
+  standard_rate      Decimal     @db.Decimal(14, 2)
+  actual_rate        Decimal     @db.Decimal(14, 2)
+  discount           Decimal     @default(0) @db.Decimal(14, 2)
+  line_total         Decimal     @db.Decimal(14, 2)
+  created_at         DateTime    @default(now()) @db.Timestamptz(6)
+  bills              bills       @relation(fields: [bill_id], references: [id], onUpdate: NoAction, map: "fk_bill_items_bill")
+  items              items       @relation(fields: [item_id], references: [id], onUpdate: NoAction, map: "fk_bill_items_item")
+  item_units         item_units? @relation(fields: [item_unit_id], references: [id], onUpdate: NoAction, map: "fk_bill_items_unit")
+
+  @@index([bill_id], map: "idx_bill_items_bill")
+  @@index([item_id], map: "idx_bill_items_item")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model bills {
+  id                        BigInt                @id @default(autoincrement())
+  business_id               BigInt
+  bill_number               String                @db.VarChar(40)
+  customer_id               BigInt?
+  bill_type                 bill_type             @default(CUSTOMER)
+  status                    bill_status           @default(COMPLETED)
+  transaction_at            DateTime              @default(now()) @db.Timestamptz(6)
+  customer_name_snapshot    String?               @db.VarChar(150)
+  customer_phone_snapshot   String?               @db.VarChar(20)
+  place_snapshot            String?               @db.VarChar(150)
+  customer_address_snapshot String?
+  subtotal                  Decimal               @default(0) @db.Decimal(14, 2)
+  discount                  Decimal               @default(0) @db.Decimal(14, 2)
+  grand_total               Decimal               @default(0) @db.Decimal(14, 2)
+  previous_balance          Decimal               @default(0) @db.Decimal(14, 2)
+  amount_paid               Decimal               @default(0) @db.Decimal(14, 2)
+  current_bill_balance      Decimal               @default(0) @db.Decimal(14, 2)
+  overall_balance           Decimal               @default(0) @db.Decimal(14, 2)
+  notes                     String?
+  created_by                BigInt
+  created_at                DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime              @default(now()) @db.Timestamptz(6)
+  bill_deliveries           bill_deliveries?
+  bill_items                bill_items[]
+  businesses                businesses            @relation(fields: [business_id], references: [id], onUpdate: NoAction, map: "fk_bills_business")
+  users                     users                 @relation(fields: [created_by], references: [id], onUpdate: NoAction, map: "fk_bills_created_by")
+  customers                 customers?            @relation(fields: [customer_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_bills_customer")
+  ledger_entries            ledger_entries[]
+  payment_allocations       payment_allocations[]
+
+  @@unique([business_id, bill_number], map: "uq_bills_business_bill_number")
+  @@index([customer_id], map: "idx_bills_customer")
+  @@index([business_id, transaction_at], map: "idx_bills_transaction_at")
+}
+
+enum name_display_mode {
+  ENGLISH
+  TELUGU
+  BOTH
+}
+
+/// The printed bill/PDF can only show one language at a time (unlike
+/// the on-screen name_display_mode, which allows BOTH) — kept as its
+/// own enum/setting so an admin can print in Telugu for customers
+/// while staff still see English or Both on screen, independently.
+enum print_language {
+  ENGLISH
+  TELUGU
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model businesses {
+  id                BigInt            @id @default(autoincrement())
+  name              String            @db.VarChar(150)
+  proprietor_name   String?           @db.VarChar(150)
+  phone             String?           @db.VarChar(20)
+  alternate_phone   String?           @db.VarChar(20)
+  address           String?
+  gst_number        String?           @db.VarChar(30)
+  logo_url          String?
+  upi_id            String?           @db.VarChar(100)
+  upi_phone         String?           @db.VarChar(20)
+  name_display_mode name_display_mode @default(ENGLISH)
+  print_language    print_language    @default(ENGLISH)
+  bill_note         String?           @db.VarChar(300)
+  is_active         Boolean           @default(true)
+  created_at        DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime          @default(now()) @db.Timestamptz(6)
+  audit_logs        audit_logs[]
+  bills             bills[]
+  categories        categories[]
+  customers         customers[]
+  delivery_agents   delivery_agents[]
+  items             items[]
+  ledger_entries    ledger_entries[]
+  payments          payments[]
+  users             users[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model categories {
+  id          BigInt     @id @default(autoincrement())
+  business_id BigInt
+  name        String     @db.VarChar(100)
+  telugu_name String?    @db.VarChar(100)
+  is_active   Boolean    @default(true)
+  created_at  DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime   @default(now()) @db.Timestamptz(6)
+  businesses  businesses @relation(fields: [business_id], references: [id], onUpdate: NoAction, map: "fk_categories_business")
+  items       items[]
+
+  @@unique([business_id, name], map: "uq_categories_business_name")
+  @@index([business_id], map: "idx_categories_business")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model customers {
+  id              BigInt           @id @default(autoincrement())
+  business_id     BigInt
+  customer_code   String           @db.VarChar(30)
+  english_name    String           @db.VarChar(150)
+  telugu_name     String?          @db.VarChar(150)
+  phone           String?          @db.VarChar(20)
+  alternate_phone String?          @db.VarChar(20)
+  place           String?          @db.VarChar(150)
+  address         String?
+  notes           String?
+  is_active       Boolean          @default(true)
+  created_at      DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime         @default(now()) @db.Timestamptz(6)
+  bills           bills[]
+  businesses      businesses       @relation(fields: [business_id], references: [id], onUpdate: NoAction, map: "fk_customers_business")
+  ledger_entries  ledger_entries[]
+  payments        payments[]
+
+  @@unique([business_id, customer_code], map: "uq_customers_business_code")
+  @@index([business_id], map: "idx_customers_business")
+  @@index([business_id, english_name], map: "idx_customers_name")
+  @@index([business_id, phone], map: "idx_customers_phone")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model delivery_agents {
+  id              BigInt            @id @default(autoincrement())
+  business_id     BigInt
+  name            String            @db.VarChar(100)
+  phone           String?           @db.VarChar(20)
+  vehicle_number  String?           @db.VarChar(30)
+  notes           String?
+  is_active       Boolean           @default(true)
+  created_at      DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime          @default(now()) @db.Timestamptz(6)
+  bill_deliveries bill_deliveries[]
+  businesses      businesses        @relation(fields: [business_id], references: [id], onUpdate: NoAction, map: "fk_delivery_agents_business")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model item_units {
+  id             BigInt       @id @default(autoincrement())
+  item_id        BigInt
+  unit           String       @db.VarChar(30)
+  standard_price Decimal      @default(0) @db.Decimal(14, 2)
+  is_default     Boolean      @default(false)
+  is_active      Boolean      @default(true)
+  created_at     DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime     @default(now()) @db.Timestamptz(6)
+  bill_items     bill_items[]
+  items          items        @relation(fields: [item_id], references: [id], onUpdate: NoAction, map: "fk_item_units_item")
+
+  @@unique([item_id, unit], map: "uq_item_units_item_unit")
+  @@index([item_id], map: "idx_item_units_item")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model items {
+  id           BigInt       @id @default(autoincrement())
+  business_id  BigInt
+  category_id  BigInt?
+  item_code    String       @db.VarChar(30)
+  english_name String       @db.VarChar(150)
+  telugu_name  String?      @db.VarChar(150)
+  description  String?
+  is_active    Boolean      @default(true)
+  created_at   DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime     @default(now()) @db.Timestamptz(6)
+  bill_items   bill_items[]
+  item_units   item_units[]
+  businesses   businesses   @relation(fields: [business_id], references: [id], onUpdate: NoAction, map: "fk_items_business")
+  categories   categories?  @relation(fields: [category_id], references: [id], onUpdate: NoAction, map: "fk_items_category")
+
+  @@unique([business_id, item_code], map: "uq_items_business_code")
+  @@unique([business_id, english_name], map: "uq_items_business_name")
+  @@index([business_id], map: "idx_items_business")
+  @@index([category_id], map: "idx_items_category")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model ledger_entries {
+  id             BigInt            @id @default(autoincrement())
+  business_id    BigInt
+  customer_id    BigInt
+  entry_type     ledger_entry_type
+  bill_id        BigInt?
+  payment_id     BigInt?
+  transaction_at DateTime          @default(now()) @db.Timestamptz(6)
+  debit          Decimal           @default(0) @db.Decimal(14, 2)
+  credit         Decimal           @default(0) @db.Decimal(14, 2)
+  balance_after  Decimal           @db.Decimal(14, 2)
+  description    String?
+  created_at     DateTime          @default(now()) @db.Timestamptz(6)
+  bills          bills?            @relation(fields: [bill_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_ledger_bill")
+  businesses     businesses        @relation(fields: [business_id], references: [id], onUpdate: NoAction, map: "fk_ledger_business")
+  customers      customers         @relation(fields: [customer_id], references: [id], onUpdate: NoAction, map: "fk_ledger_customer")
+  payments       payments?         @relation(fields: [payment_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_ledger_payment")
+
+  @@index([customer_id, transaction_at], map: "idx_ledger_customer_date")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model payment_allocations {
+  id               BigInt   @id @default(autoincrement())
+  payment_id       BigInt
+  bill_id          BigInt
+  allocated_amount Decimal  @db.Decimal(14, 2)
+  created_at       DateTime @default(now()) @db.Timestamptz(6)
+  bills            bills    @relation(fields: [bill_id], references: [id], onUpdate: NoAction, map: "fk_payment_allocations_bill")
+  payments         payments @relation(fields: [payment_id], references: [id], onUpdate: NoAction, map: "fk_payment_allocations_payment")
+
+  @@unique([payment_id, bill_id], map: "uq_payment_bill")
+  @@index([bill_id], map: "idx_payment_allocations_bill")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model payments {
+  id                  BigInt                @id @default(autoincrement())
+  business_id         BigInt
+  payment_number      String                @db.VarChar(40)
+  customer_id         BigInt
+  payment_at          DateTime              @default(now()) @db.Timestamptz(6)
+  amount              Decimal               @db.Decimal(14, 2)
+  payment_method      payment_method
+  reference_number    String?               @db.VarChar(100)
+  notes               String?
+  created_by          BigInt
+  created_at          DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime              @default(now()) @db.Timestamptz(6)
+  ledger_entries      ledger_entries[]
+  payment_allocations payment_allocations[]
+  businesses          businesses            @relation(fields: [business_id], references: [id], onUpdate: NoAction, map: "fk_payments_business")
+  users               users                 @relation(fields: [created_by], references: [id], onUpdate: NoAction, map: "fk_payments_created_by")
+  customers           customers             @relation(fields: [customer_id], references: [id], onUpdate: NoAction, map: "fk_payments_customer")
+
+  @@unique([business_id, payment_number], map: "uq_payments_business_number")
+  @@index([customer_id], map: "idx_payments_customer")
+  @@index([business_id, payment_at], map: "idx_payments_payment_at")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model users {
+  id            BigInt       @id @default(autoincrement())
+  business_id   BigInt
+  name          String       @db.VarChar(100)
+  username      String       @db.VarChar(100)
+  password_hash String
+  role          user_role    @default(STAFF)
+  is_active     Boolean      @default(true)
+  last_login_at DateTime?    @db.Timestamptz(6)
+  created_at    DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime     @default(now()) @db.Timestamptz(6)
+  audit_logs    audit_logs[]
+  bills         bills[]
+  payments      payments[]
+  businesses    businesses   @relation(fields: [business_id], references: [id], onUpdate: NoAction, map: "fk_users_business")
+
+  @@unique([business_id, username], map: "uq_users_business_username")
+  @@index([business_id], map: "idx_users_business")
+}
+
+enum audit_action {
+  CREATE
+  UPDATE
+  CANCEL
+  RESTORE
+}
+
+enum bill_status {
+  DRAFT
+  COMPLETED
+  CANCELLED
+}
+
+enum bill_type {
+  CUSTOMER
+  WALK_IN
+}
+
+enum delivery_status {
+  GENERATED
+  SENT
+  REACHED
+  BALANCE
+  CLEARED
+}
+
+enum ledger_entry_type {
+  SALE
+  PAYMENT
+  RETURN
+  ADJUSTMENT
+}
+
+enum payment_method {
+  CASH
+  UPI
+  BANK_TRANSFER
+  CHEQUE
+  OTHER
+}
+
+enum user_role {
+  ADMIN
+  STAFF
+}
