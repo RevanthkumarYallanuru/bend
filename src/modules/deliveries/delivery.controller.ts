@@ -346,14 +346,14 @@ export async function reassignDeliveryAgentController(
 
     const { id } = deliveryIdSchema.parse({ id: req.params.id });
 
-    const { delivery_agent_id } = reassignAgentSchema.parse(
-      req.body
-    );
+    const { delivery_agent_id, temp_agent_name } =
+      reassignAgentSchema.parse(req.body);
 
     const delivery = await reassignDeliveryAgent(
       businessId,
       id,
-      delivery_agent_id
+      delivery_agent_id,
+      temp_agent_name
     );
 
     res.json({

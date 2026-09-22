@@ -196,6 +196,10 @@ export async function assignBillDelivery(
     data: {
       bill_id: billId,
       delivery_agent_id: agentId,
+      // Only meaningful when no permanent agent was chosen — the
+      // schema's mutual-exclusion is already enforced by validation,
+      // this just mirrors that here defensively.
+      temp_agent_name: agentId ? null : data.temp_agent_name ?? null,
       notes: data.notes ?? null,
     },
     include: deliveryInclude,
@@ -205,8 +209,15 @@ export async function assignBillDelivery(
 export async function reassignDeliveryAgent(
   businessId: bigint,
   deliveryId: bigint,
-  agentIdRaw: string | null
+  agentIdRaw: string | null | undefined,
+  tempAgentNameRaw: string | null | undefined
 ) {
+  if (agentIdRaw && tempAgentNameRaw) {
+    throw new DeliveryError(
+      "Choose either an existing agent or a temporary agent name, not both"
+    );
+  }
+
   const delivery = await getDeliveryForBusiness(
     businessId,
     deliveryId
@@ -239,7 +250,10 @@ export async function reassignDeliveryAgent(
 
   return prisma.bill_deliveries.update({
     where: { id: delivery.id },
-    data: { delivery_agent_id: agentId },
+    data: {
+      delivery_agent_id: agentId,
+      temp_agent_name: agentId ? null : tempAgentNameRaw ?? null,
+    },
     include: deliveryInclude,
   });
 }

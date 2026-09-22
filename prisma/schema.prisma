@@ -28,6 +28,11 @@ model bill_deliveries {
   id                BigInt           @id @default(autoincrement())
   bill_id           BigInt           @unique(map: "uq_bill_delivery")
   delivery_agent_id BigInt?
+  /// Free-text agent name for a one-off/temporary agent (e.g. "Raju -
+  /// Auto") that isn't worth adding to the permanent delivery_agents
+  /// list. Mutually exclusive with delivery_agent_id — set at most
+  /// one of the two; both null means no agent assigned.
+  temp_agent_name   String?          @db.VarChar(100)
   status            delivery_status  @default(GENERATED)
   sent_at           DateTime?        @db.Timestamptz(6)
   reached_at        DateTime?        @db.Timestamptz(6)

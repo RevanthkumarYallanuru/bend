@@ -55,29 +55,70 @@ export const listAgentsQuerySchema = z.object({
 
 /* ---------------- DELIVERIES ---------------- */
 
-export const assignDeliverySchema = z.object({
-  bill_id: z
-    .string()
-    .regex(/^\d+$/, "Bill ID must be a numeric string"),
+export const assignDeliverySchema = z
+  .object({
+    bill_id: z
+      .string()
+      .regex(/^\d+$/, "Bill ID must be a numeric string"),
 
-  delivery_agent_id: z
-    .string()
-    .regex(/^\d+$/, "Delivery agent ID must be a numeric string")
-    .optional(),
+    delivery_agent_id: z
+      .string()
+      .regex(/^\d+$/, "Delivery agent ID must be a numeric string")
+      .optional(),
 
-  notes: z
-    .string()
-    .trim()
-    .max(1000, "Notes must be at most 1000 characters")
-    .optional(),
-});
+    // A one-off agent name (e.g. "Raju - Auto") not worth adding to
+    // the permanent Agents list — mutually exclusive with
+    // delivery_agent_id, enforced below.
+    temp_agent_name: z
+      .string()
+      .trim()
+      .min(1, "Agent name cannot be empty")
+      .max(100, "Agent name must be at most 100 characters")
+      .optional(),
 
-export const reassignAgentSchema = z.object({
-  delivery_agent_id: z
-    .string()
-    .regex(/^\d+$/, "Delivery agent ID must be a numeric string")
-    .nullable(),
-});
+    notes: z
+      .string()
+      .trim()
+      .max(1000, "Notes must be at most 1000 characters")
+      .optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.delivery_agent_id && data.temp_agent_name) {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "Choose either an existing agent or a temporary agent name, not both",
+        path: ["temp_agent_name"],
+      });
+    }
+  });
+
+export const reassignAgentSchema = z
+  .object({
+    delivery_agent_id: z
+      .string()
+      .regex(/^\d+$/, "Delivery agent ID must be a numeric string")
+      .nullable()
+      .optional(),
+
+    temp_agent_name: z
+      .string()
+      .trim()
+      .min(1, "Agent name cannot be empty")
+      .max(100, "Agent name must be at most 100 characters")
+      .nullable()
+      .optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.delivery_agent_id && data.temp_agent_name) {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "Choose either an existing agent or a temporary agent name, not both",
+        path: ["temp_agent_name"],
+      });
+    }
+  });
 
 export const updateDeliveryStatusSchema = z.object({
   status: z.enum(["SENT", "REACHED", "BALANCE", "CLEARED"]),

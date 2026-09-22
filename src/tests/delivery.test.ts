@@ -470,6 +470,162 @@ async function runDeliveryTests() {
       }
     });
 
+    /*
+     * TEMPORARY AGENT NAME (one-off agent, not added to the
+     * permanent delivery_agents list)
+     */
+    await runTest(
+      "Assign bill with a temporary agent name",
+      async () => {
+        const billId = await createWalkInBill();
+
+        const res = await axios.post(
+          `${API_URL}/deliveries`,
+          { bill_id: billId, temp_agent_name: "Raju - Auto" },
+          { headers: authHeaders() }
+        );
+
+        if (res.status !== 201) {
+          throw new Error(`Expected 201, got ${res.status}`);
+        }
+        if (res.data.data.temp_agent_name !== "Raju - Auto") {
+          throw new Error(
+            `Expected temp_agent_name "Raju - Auto", got "${res.data.data.temp_agent_name}"`
+          );
+        }
+        if (res.data.data.delivery_agent_id !== null) {
+          throw new Error(
+            "Temporary agent bill unexpectedly has a delivery_agent_id"
+          );
+        }
+      }
+    );
+
+    await runTest(
+      "Temporary agent is not created in the permanent Agents list",
+      async () => {
+        const before = await axios.get(`${API_URL}/delivery-agents`, {
+          headers: authHeaders(),
+        });
+        const countBefore = before.data.count;
+
+        const billId = await createWalkInBill();
+        await axios.post(
+          `${API_URL}/deliveries`,
+          { bill_id: billId, temp_agent_name: "Suresh - Tata Ace" },
+          { headers: authHeaders() }
+        );
+
+        const after = await axios.get(`${API_URL}/delivery-agents`, {
+          headers: authHeaders(),
+        });
+
+        if (after.data.count !== countBefore) {
+          throw new Error(
+            `Agents list count changed (${countBefore} -> ${after.data.count}) — a temporary agent was persisted as a permanent one`
+          );
+        }
+
+        const match = (after.data.data as any[]).find(
+          (a) => a.name === "Suresh - Tata Ace"
+        );
+        if (match) {
+          throw new Error(
+            "Temporary agent name leaked into the permanent Agents list"
+          );
+        }
+      }
+    );
+
+    await runTest(
+      "Bill with no agent leaves delivery unassigned",
+      async () => {
+        const billId = await createWalkInBill();
+
+        const res = await axios.post(
+          `${API_URL}/deliveries`,
+          { bill_id: billId },
+          { headers: authHeaders() }
+        );
+
+        if (res.data.data.delivery_agent_id !== null) {
+          throw new Error("Expected delivery_agent_id to be null");
+        }
+        if (res.data.data.temp_agent_name !== null) {
+          throw new Error("Expected temp_agent_name to be null");
+        }
+      }
+    );
+
+    await runTest(
+      "Reject assigning both an existing agent and a temporary agent name",
+      async () => {
+        const billId = await createWalkInBill();
+
+        try {
+          await axios.post(
+            `${API_URL}/deliveries`,
+            {
+              bill_id: billId,
+              delivery_agent_id: testAgentId,
+              temp_agent_name: "Ramesh - Riksha",
+            },
+            { headers: authHeaders() }
+          );
+          throw new Error("API accepted both an agent ID and a temp name");
+        } catch (error: any) {
+          if (error.response?.status !== 400) {
+            throw new Error(
+              `Expected HTTP 400, got ${error.response?.status ?? error.message}`
+            );
+          }
+        }
+      }
+    );
+
+    await runTest(
+      "Reassigning to a temporary agent clears any existing agent link",
+      async () => {
+        const billId = await createWalkInBill();
+
+        const delivery = await axios.post(
+          `${API_URL}/deliveries`,
+          { bill_id: billId, delivery_agent_id: testAgentId },
+          { headers: authHeaders() }
+        );
+        const id = delivery.data.data.id;
+
+        const res = await axios.patch(
+          `${API_URL}/deliveries/${id}/agent`,
+          { temp_agent_name: "Auto AP03XX1234" },
+          { headers: authHeaders() }
+        );
+
+        if (res.data.data.temp_agent_name !== "Auto AP03XX1234") {
+          throw new Error("Temporary agent name was not set on reassign");
+        }
+        if (res.data.data.delivery_agent_id !== null) {
+          throw new Error(
+            "Existing agent link was not cleared when reassigning to a temporary name"
+          );
+        }
+      }
+    );
+
+    await runTest(
+      "Existing agent still appears correctly via its own endpoint",
+      async () => {
+        const res = await axios.get(
+          `${API_URL}/delivery-agents/${testAgentId}`,
+          { headers: authHeaders() }
+        );
+
+        if (res.status !== 200 || res.data.data.id !== testAgentId) {
+          throw new Error("Existing permanent agent lookup failed");
+        }
+      }
+    );
+
     await runTest(
       "Reject unauthenticated access on delivery endpoints",
       async () => {
