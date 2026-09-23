@@ -200,6 +200,34 @@ async function runReportsTests() {
       }
     });
 
+    await runTest("Sales report (all time) reflects created bill", async () => {
+      const res = await axios.get(
+        `${API_URL}/reports/sales?range=all`,
+        { headers: authHeaders() }
+      );
+
+      if (res.status !== 200) {
+        throw new Error(`Expected 200, got ${res.status}`);
+      }
+      // range=all must be at least as inclusive as range=today.
+      if (Number(res.data.data.summary.total_sales) < 600) {
+        throw new Error(
+          `Expected all-time total_sales >= 600, got ${res.data.data.summary.total_sales}`
+        );
+      }
+    });
+
+    await runTest("Dashboard accepts range=all", async () => {
+      const res = await axios.get(
+        `${API_URL}/reports/dashboard?range=all`,
+        { headers: authHeaders() }
+      );
+
+      if (res.status !== 200) {
+        throw new Error(`Expected 200, got ${res.status}`);
+      }
+    });
+
     await runTest("Sales report (custom range)", async () => {
       const today = new Date().toISOString().slice(0, 10);
       const res = await axios.get(

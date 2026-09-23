@@ -27,6 +27,16 @@ export const createPayableSchema = z.object({
     .trim()
     .min(1, "Reason is required")
     .max(2000, "Reason must be at most 2000 characters"),
+
+  // Plain calendar date (YYYY-MM-DD) from a native <input type="date">
+  // — the admin picks the actual date of the expense, not necessarily
+  // today. Optional only for API flexibility; the frontend always
+  // sends it, pre-filled to today.
+  payable_date: z
+    .string()
+    .trim()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format")
+    .optional(),
 });
 
 export const payableIdSchema = z.object({

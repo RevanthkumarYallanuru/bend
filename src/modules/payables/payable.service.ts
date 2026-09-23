@@ -52,6 +52,10 @@ export async function createPayable(
 ) {
   const totalAmount = roundMoney(decimalFrom(data.total_amount));
 
+  const payableDate = data.payable_date
+    ? new Date(`${data.payable_date}T00:00:00.000Z`)
+    : new Date();
+
   return prisma.payables.create({
     data: {
       business_id: businessId,
@@ -59,6 +63,7 @@ export async function createPayable(
       total_amount: totalAmount,
       amount_paid: new Decimal(0),
       reason: data.reason,
+      payable_date: payableDate,
       status: "PENDING",
       created_by: userId,
     },
@@ -98,7 +103,7 @@ export async function getPayables(
   return prisma.payables.findMany({
     where,
     include: payableInclude,
-    orderBy: { created_at: "desc" },
+    orderBy: { payable_date: "desc" },
   });
 }
 
@@ -137,8 +142,8 @@ export async function getPayablesInsights(
       COUNT(*) FILTER (WHERE status = 'PAID') AS paid_count
     FROM payables
     WHERE business_id = ${businessId}
-      AND created_at >= ${start}
-      AND created_at <= ${end}
+      AND payable_date >= ${start}
+      AND payable_date <= ${end}
   `;
 
   const row = rows[0];

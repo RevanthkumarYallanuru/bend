@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const rangeEnum = z.enum(["today", "week", "month", "year", "custom"]);
+const rangeEnum = z.enum(["today", "week", "month", "year", "all", "custom"]);
 
 export const rangeQuerySchema = z
   .object({
@@ -69,6 +69,13 @@ export function resolveDateRange(query: RangeQuery): {
     );
 
     return { start, end: endOfToday };
+  }
+
+  if (query.range === "all") {
+    // Everything ever recorded, through today — the epoch is safely
+    // before any real row's date, so this is a plain unbounded lower
+    // bound rather than a special case in each query.
+    return { start: new Date(0), end: endOfToday };
   }
 
   // year: 1st of January of the current calendar year through today

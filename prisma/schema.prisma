@@ -230,6 +230,8 @@ model delivery_agents {
   updated_at      DateTime          @default(now()) @db.Timestamptz(6)
   bill_deliveries bill_deliveries[]
   businesses      businesses        @relation(fields: [business_id], references: [id], onUpdate: NoAction, map: "fk_delivery_agents_business")
+
+  @@index([business_id], map: "idx_delivery_agents_business")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -317,6 +319,12 @@ model payables {
   /// child rows every time.
   amount_paid      Decimal            @default(0) @db.Decimal(14, 2)
   reason           String
+  /// The date the expense/amount was actually incurred, chosen
+  /// manually by the admin on the form (defaults to today there, but
+  /// is never forced to be "now" server-side) — distinct from
+  /// paid_at/payable_payments.payment_date, which is when money was
+  /// actually paid out against this payable.
+  payable_date     DateTime           @default(now()) @db.Timestamptz(6)
   status           payable_status     @default(PENDING)
   paid_at          DateTime?          @db.Timestamptz(6)
   created_by       BigInt
@@ -328,6 +336,7 @@ model payables {
 
   @@index([business_id], map: "idx_payables_business")
   @@index([business_id, status], map: "idx_payables_status")
+  @@index([business_id, payable_date], map: "idx_payables_payable_date")
 }
 
 /// One row per partial/full payment made against a payable — an

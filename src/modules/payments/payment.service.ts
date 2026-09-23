@@ -141,24 +141,47 @@ async function getReversedPaymentIds(
   );
 }
 
-async function lockBill(
+async function lockBills(
   tx: TransactionClient,
   businessId: bigint,
-  billId: bigint
+  billIds: bigint[]
 ): Promise<void> {
-  await tx.$queryRaw`SELECT id FROM bills WHERE id = ${billId} AND business_id = ${businessId} FOR UPDATE`;
+  if (billIds.length === 0) return;
+
+  // Locks every target bill in one round trip instead of one per bill.
+  // ORDER BY id keeps lock acquisition in the same ascending order the
+  // caller already processes allocations in (validated distinct per
+  // bill_id — see createPaymentSchema), so this preserves the same
+  // deadlock-avoidance property as locking them one at a time.
+  await tx.$queryRaw`SELECT id FROM bills WHERE id = ANY(${billIds}) AND business_id = ${businessId} ORDER BY id FOR UPDATE`;
 }
 
-async function getBillOutstanding(
+/**
+ * Batched replacement for calling a per-bill outstanding-balance
+ * lookup once per allocation — a payment split across N bills used to
+ * cost ~3N sequential round trips (lock + fetch + reversed-payments
+ * check, each done separately per bill). This does the same locking
+ * and math but in 3 round trips total regardless of N.
+ */
+async function getBillOutstandingMap(
   tx: TransactionClient,
   businessId: bigint,
-  billId: bigint
+  billIds: bigint[]
 ) {
-  await lockBill(tx, businessId, billId);
+  const map = new Map<
+    string,
+    { bill: Prisma.billsGetPayload<{ include: { payment_allocations: true } }>; outstanding: Decimal }
+  >();
 
-  const bill = await tx.bills.findFirst({
+  if (billIds.length === 0) {
+    return map;
+  }
+
+  await lockBills(tx, businessId, billIds);
+
+  const bills = await tx.bills.findMany({
     where: {
-      id: billId,
+      id: { in: billIds },
       business_id: businessId,
     },
     include: {
@@ -166,34 +189,34 @@ async function getBillOutstanding(
     },
   });
 
-  if (!bill) {
-    throw new PaymentError("Bill not found", 404);
-  }
-
-  const paymentIds = bill.payment_allocations.map(
-    (allocation) => allocation.payment_id
+  const allPaymentIds = bills.flatMap((bill) =>
+    bill.payment_allocations.map((allocation) => allocation.payment_id)
   );
 
   const reversedPaymentIds = await getReversedPaymentIds(
     tx,
-    paymentIds
+    allPaymentIds
   );
 
-  let allocatedTotal = new Decimal(0);
+  for (const bill of bills) {
+    let allocatedTotal = new Decimal(0);
 
-  for (const allocation of bill.payment_allocations) {
-    if (!reversedPaymentIds.has(allocation.payment_id.toString())) {
-      allocatedTotal = allocatedTotal.plus(
-        decimalFrom(allocation.allocated_amount)
-      );
+    for (const allocation of bill.payment_allocations) {
+      if (!reversedPaymentIds.has(allocation.payment_id.toString())) {
+        allocatedTotal = allocatedTotal.plus(
+          decimalFrom(allocation.allocated_amount)
+        );
+      }
     }
+
+    const outstanding = roundMoney(
+      decimalFrom(bill.grand_total).minus(allocatedTotal)
+    );
+
+    map.set(bill.id.toString(), { bill, outstanding });
   }
 
-  const outstanding = roundMoney(
-    decimalFrom(bill.grand_total).minus(allocatedTotal)
-  );
-
-  return { bill, outstanding };
+  return map;
 }
 
 export async function createPayment(
@@ -276,17 +299,25 @@ export async function createPayment(
         },
       });
 
+      const billOutstandingMap = await getBillOutstandingMap(
+        tx,
+        businessId,
+        allocationInputs.map((allocation) => BigInt(allocation.bill_id))
+      );
+
       for (const allocation of allocationInputs) {
         const billId = BigInt(allocation.bill_id);
         const allocationAmount = roundMoney(
           decimalFrom(allocation.amount)
         );
 
-        const { bill, outstanding } = await getBillOutstanding(
-          tx,
-          businessId,
-          billId
-        );
+        const entry = billOutstandingMap.get(billId.toString());
+
+        if (!entry) {
+          throw new PaymentError("Bill not found", 404);
+        }
+
+        const { bill, outstanding } = entry;
 
         if (
           bill.customer_id === null ||

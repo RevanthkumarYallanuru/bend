@@ -16,6 +16,7 @@ let testItemUnitId: string | null = null;
 let bill1: any = null; // customer bill, partially paid
 let bill2: any = null; // customer bill, fully paid (same customer, so it carries bill1's leftover)
 let walkInBill: any = null;
+let oldBill: any = null; // dated 2020-01-01 — outside every bounded range, only "all" should include it
 
 let business2Id: bigint | null = null;
 let user2Id: bigint | null = null;
@@ -242,6 +243,29 @@ async function runBillsExportTests() {
       createdBillIds.push(BigInt(walkInBill.id));
     });
 
+    await runTest("Create bill dated 2020-01-01 (outside any bounded range)", async () => {
+      const res = await axios.post(
+        `${API_URL}/bills`,
+        {
+          bill_type: "WALK_IN",
+          transaction_at: "2020-01-01T10:00:00.000Z",
+          amount_paid: 50,
+          items: [
+            {
+              item_id: testItemId,
+              item_unit_id: testItemUnitId,
+              quantity: 1,
+              actual_rate: 50,
+            },
+          ],
+        },
+        { headers: authHeaders() }
+      );
+      if (res.status !== 201) throw new Error(`Expected 201, got ${res.status}`);
+      oldBill = res.data.data;
+      createdBillIds.push(BigInt(oldBill.id));
+    });
+
     let sheet1: ExcelJS.Worksheet;
 
     await runTest("Daily export (range=today) is a valid xlsx with correct headers", async () => {
@@ -304,6 +328,42 @@ async function runBillsExportTests() {
         }
       }
     });
+
+    await runTest(
+      "Monthly export (range=month) excludes the 2020-01-01 bill",
+      async () => {
+        const res = await axios.get(`${API_URL}/reports/bills/export?range=month`, {
+          headers: authHeaders(),
+          responseType: "arraybuffer",
+        });
+        const workbook = await loadWorkbook(Buffer.from(res.data));
+        const rows = rowsByBillId(workbook.worksheets[0]);
+
+        if (rows.has(oldBill.bill_number)) {
+          throw new Error(
+            "2020-01-01-dated bill should not appear in a range=month export"
+          );
+        }
+      }
+    );
+
+    await runTest(
+      "All-time export (range=all) includes every test bill, including 2020-01-01",
+      async () => {
+        const res = await axios.get(`${API_URL}/reports/bills/export?range=all`, {
+          headers: authHeaders(),
+          responseType: "arraybuffer",
+        });
+        const workbook = await loadWorkbook(Buffer.from(res.data));
+        const rows = rowsByBillId(workbook.worksheets[0]);
+
+        for (const bill of [bill1, bill2, walkInBill, oldBill]) {
+          if (!rows.has(bill.bill_number)) {
+            throw new Error(`Bill ${bill.bill_number} missing from all-time export`);
+          }
+        }
+      }
+    );
 
     await runTest(
       "Custom-range export covering today includes all 3 test bills",

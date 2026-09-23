@@ -114,6 +114,85 @@ async function runPayableTests() {
       if (payable.paid_at !== null) {
         throw new Error("Expected paid_at to be null on creation");
       }
+      const today = new Date().toISOString().slice(0, 10);
+      if (
+        typeof payable.payable_date !== "string" ||
+        !payable.payable_date.startsWith(today)
+      ) {
+        throw new Error(
+          `Expected payable_date to default to today (${today}), got ${payable.payable_date}`
+        );
+      }
+    });
+
+    let manualDatePayableId: string | null = null;
+
+    await runTest(
+      "Create payable with a manually selected past date stores that date",
+      async () => {
+        const res = await axios.post(
+          `${API_URL}/payables`,
+          {
+            payee_name: `Manual Date Vendor ${Date.now()}`,
+            total_amount: 500,
+            reason: "Diesel for delivery vehicle",
+            payable_date: "2026-01-15",
+          },
+          { headers: authHeaders() }
+        );
+
+        if (res.status !== 201) {
+          throw new Error(`Expected 201, got ${res.status}`);
+        }
+
+        const payable = res.data.data;
+        manualDatePayableId = payable.id;
+        createdPayableIds.push(BigInt(payable.id));
+
+        if (
+          typeof payable.payable_date !== "string" ||
+          !payable.payable_date.startsWith("2026-01-15")
+        ) {
+          throw new Error(
+            `Expected payable_date 2026-01-15, got ${payable.payable_date}`
+          );
+        }
+      }
+    );
+
+    await runTest("Manually selected date persists on a fresh read", async () => {
+      const res = await axios.get(
+        `${API_URL}/payables/${manualDatePayableId}`,
+        { headers: authHeaders() }
+      );
+
+      if (!res.data.data.payable_date.startsWith("2026-01-15")) {
+        throw new Error(
+          `Expected persisted payable_date 2026-01-15, got ${res.data.data.payable_date}`
+        );
+      }
+    });
+
+    await runTest("Reject payable with invalid date format", async () => {
+      try {
+        await axios.post(
+          `${API_URL}/payables`,
+          {
+            payee_name: "Bad Date Vendor",
+            total_amount: 100,
+            reason: "Test",
+            payable_date: "15-01-2026",
+          },
+          { headers: authHeaders() }
+        );
+        throw new Error("API accepted a malformed payable_date");
+      } catch (error: any) {
+        if (error.response?.status !== 400) {
+          throw new Error(
+            `Expected 400, got ${error.response?.status ?? error.message}`
+          );
+        }
+      }
     });
 
     await runTest("Reject payable with missing required fields", async () => {
@@ -173,6 +252,28 @@ async function runPayableTests() {
       );
       if (!found) throw new Error("Created payable not found in list");
     });
+
+    await runTest(
+      "List is ordered by payable_date descending, not created_at",
+      async () => {
+        const res = await axios.get(`${API_URL}/payables`, {
+          headers: authHeaders(),
+        });
+
+        const rows = res.data.data as any[];
+        const todayIndex = rows.findIndex((p) => p.id === testPayableId);
+        const pastIndex = rows.findIndex((p) => p.id === manualDatePayableId);
+
+        if (todayIndex === -1 || pastIndex === -1) {
+          throw new Error("Both test payables should be present in the list");
+        }
+        if (todayIndex >= pastIndex) {
+          throw new Error(
+            `Expected today-dated payable (index ${todayIndex}) before the 2026-01-15-dated one (index ${pastIndex})`
+          );
+        }
+      }
+    );
 
     await runTest(
       "Record a partial payment — status becomes PARTIALLY_PAID",
@@ -335,8 +436,37 @@ async function runPayableTests() {
       }
     );
 
-    await runTest("Insights accept week/month/custom ranges", async () => {
-      for (const range of ["week", "month"]) {
+    await runTest(
+      "Insights (all) reaches back further than today — includes the 2026-01-15-dated payable",
+      async () => {
+        const res = await axios.get(`${API_URL}/payables/insights`, {
+          params: { range: "all" },
+          headers: authHeaders(),
+        });
+
+        if (res.status !== 200) {
+          throw new Error(`Expected 200, got ${res.status}`);
+        }
+        const insights = res.data.data;
+
+        // The manually-dated payable (500, PENDING, dated 2026-01-15)
+        // falls outside "today"/"week"/"month" but must be included
+        // here — this is what actually distinguishes "all" from a
+        // large-but-bounded range rather than just accepting the enum
+        // value.
+        if (Number(insights.total_amount) < 15500) {
+          throw new Error(
+            `Expected total_amount to include both test payables (>= 15500), got ${insights.total_amount}`
+          );
+        }
+        if (insights.count < 2) {
+          throw new Error(`Expected count >= 2, got ${insights.count}`);
+        }
+      }
+    );
+
+    await runTest("Insights accept week/month/all/custom ranges", async () => {
+      for (const range of ["week", "month", "all"]) {
         const res = await axios.get(`${API_URL}/payables/insights`, {
           params: { range },
           headers: authHeaders(),
