@@ -170,6 +170,7 @@ model businesses {
   delivery_agents   delivery_agents[]
   items             items[]
   ledger_entries    ledger_entries[]
+  payables          payables[]
   payments          payments[]
   users             users[]
 }
@@ -233,12 +234,12 @@ model delivery_agents {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model item_units {
-  id                  BigInt       @id @default(autoincrement())
-  item_id             BigInt
-  unit                String       @db.VarChar(30)
-  standard_price      Decimal      @default(0) @db.Decimal(14, 2)
-  is_default          Boolean      @default(false)
-  is_active           Boolean      @default(true)
+  id                 BigInt       @id @default(autoincrement())
+  item_id            BigInt
+  unit               String       @db.VarChar(30)
+  standard_price     Decimal      @default(0) @db.Decimal(14, 2)
+  is_default         Boolean      @default(false)
+  is_active          Boolean      @default(true)
   /// When true, this unit is a container (bag/sack/bundle/...) billed
   /// by actual weight, not a flat per-container price: at billing
   /// time, quantity means "how many containers", staff enters each
@@ -246,11 +247,11 @@ model item_units {
   /// rate per kg applied to the summed weight. Defaults off so
   /// existing units (e.g. a flat-rate "Bag" already priced per bag)
   /// are never silently reinterpreted — an admin opts a unit in.
-  is_weight_variable  Boolean      @default(false)
-  created_at          DateTime     @default(now()) @db.Timestamptz(6)
-  updated_at          DateTime     @default(now()) @db.Timestamptz(6)
-  bill_items          bill_items[]
-  items               items        @relation(fields: [item_id], references: [id], onUpdate: NoAction, map: "fk_item_units_item")
+  is_weight_variable Boolean      @default(false)
+  created_at         DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime     @default(now()) @db.Timestamptz(6)
+  bill_items         bill_items[]
+  items              items        @relation(fields: [item_id], references: [id], onUpdate: NoAction, map: "fk_item_units_item")
 
   @@unique([item_id, unit], map: "uq_item_units_item_unit")
   @@index([item_id], map: "idx_item_units_item")
@@ -301,6 +302,52 @@ model ledger_entries {
   @@index([customer_id, transaction_at], map: "idx_ledger_customer_date")
 }
 
+/// "My Pays" — money the business owes to others (suppliers,
+/// transporters, etc.), the mirror image of the customer
+/// payments/ledger system but deliberately separate from it: no
+/// relation to customers, bills, or ledger_entries anywhere in this
+/// model or payable_payments below.
+model payables {
+  id               BigInt             @id @default(autoincrement())
+  business_id      BigInt
+  payee_name       String             @db.VarChar(150)
+  total_amount     Decimal            @db.Decimal(14, 2)
+  /// Running total of payable_payments — denormalized the same way
+  /// bills.amount_paid is, for fast list-page reads without summing
+  /// child rows every time.
+  amount_paid      Decimal            @default(0) @db.Decimal(14, 2)
+  reason           String
+  status           payable_status     @default(PENDING)
+  paid_at          DateTime?          @db.Timestamptz(6)
+  created_by       BigInt
+  created_at       DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime           @default(now()) @db.Timestamptz(6)
+  businesses       businesses         @relation(fields: [business_id], references: [id], onUpdate: NoAction, map: "fk_payables_business")
+  users            users              @relation(fields: [created_by], references: [id], onUpdate: NoAction, map: "fk_payables_created_by")
+  payable_payments payable_payments[]
+
+  @@index([business_id], map: "idx_payables_business")
+  @@index([business_id, status], map: "idx_payables_status")
+}
+
+/// One row per partial/full payment made against a payable — an
+/// append-only history, the payable-side mirror of `payments`.
+model payable_payments {
+  id               BigInt          @id @default(autoincrement())
+  payable_id       BigInt
+  amount           Decimal         @db.Decimal(14, 2)
+  payment_date     DateTime        @default(now()) @db.Timestamptz(6)
+  payment_method   payment_method?
+  reference_number String?         @db.VarChar(100)
+  notes            String?
+  created_by       BigInt
+  created_at       DateTime        @default(now()) @db.Timestamptz(6)
+  payables         payables        @relation(fields: [payable_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_payable_payments_payable")
+  users            users           @relation(fields: [created_by], references: [id], onUpdate: NoAction, map: "fk_payable_payments_created_by")
+
+  @@index([payable_id], map: "idx_payable_payments_payable")
+}
+
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model payment_allocations {
   id               BigInt   @id @default(autoincrement())
@@ -342,20 +389,22 @@ model payments {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model users {
-  id            BigInt       @id @default(autoincrement())
-  business_id   BigInt
-  name          String       @db.VarChar(100)
-  username      String       @db.VarChar(100)
-  password_hash String
-  role          user_role    @default(STAFF)
-  is_active     Boolean      @default(true)
-  last_login_at DateTime?    @db.Timestamptz(6)
-  created_at    DateTime     @default(now()) @db.Timestamptz(6)
-  updated_at    DateTime     @default(now()) @db.Timestamptz(6)
-  audit_logs    audit_logs[]
-  bills         bills[]
-  payments      payments[]
-  businesses    businesses   @relation(fields: [business_id], references: [id], onUpdate: NoAction, map: "fk_users_business")
+  id               BigInt             @id @default(autoincrement())
+  business_id      BigInt
+  name             String             @db.VarChar(100)
+  username         String             @db.VarChar(100)
+  password_hash    String
+  role             user_role          @default(STAFF)
+  is_active        Boolean            @default(true)
+  last_login_at    DateTime?          @db.Timestamptz(6)
+  created_at       DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime           @default(now()) @db.Timestamptz(6)
+  audit_logs       audit_logs[]
+  bills            bills[]
+  payments         payments[]
+  payables         payables[]
+  payable_payments payable_payments[]
+  businesses       businesses         @relation(fields: [business_id], references: [id], onUpdate: NoAction, map: "fk_users_business")
 
   @@unique([business_id, username], map: "uq_users_business_username")
   @@index([business_id], map: "idx_users_business")
@@ -400,6 +449,12 @@ enum payment_method {
   BANK_TRANSFER
   CHEQUE
   OTHER
+}
+
+enum payable_status {
+  PENDING
+  PARTIALLY_PAID
+  PAID
 }
 
 enum user_role {

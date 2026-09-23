@@ -12,6 +12,7 @@ import deliveryAgentRoutes from "../modules/deliveries/agent.routes";
 import deliveryRoutes from "../modules/deliveries/delivery.routes";
 import reportRoutes from "../modules/reports/report.routes";
 import businessRoutes from "../modules/business/business.routes";
+import payableRoutes from "../modules/payables/payable.routes";
 
 const router = Router();
 
@@ -43,5 +44,6 @@ router.use("/delivery-agents", deliveryAgentRoutes);
 router.use("/deliveries", deliveryRoutes);
 router.use("/reports", reportRoutes);
 router.use("/business", businessRoutes);
+router.use("/payables", payableRoutes);
 
 export default router;

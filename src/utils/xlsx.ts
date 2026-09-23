@@ -5,6 +5,9 @@ export interface XlsxColumn {
   header: string;
   key: string;
   width?: number;
+  /** Excel number format code (e.g. currency or date/time), applied
+   * to the whole column when a cell holds a number or Date value. */
+  numFmt?: string;
 }
 
 /**
@@ -30,6 +33,12 @@ export async function sendXlsx(
   }));
 
   sheet.getRow(1).font = { bold: true };
+
+  for (const column of columns) {
+    if (column.numFmt) {
+      sheet.getColumn(column.key).numFmt = column.numFmt;
+    }
+  }
 
   for (const row of rows) {
     sheet.addRow(row);

@@ -1,6 +1,8 @@
 import { Decimal } from "@prisma/client/runtime/client";
 
 import { prisma } from "../../config/database";
+import { resolveDateRange } from "../../utils/dateRange";
+import { getBills } from "../billing/billing.service";
 
 import type {
   OutstandingQuery,
@@ -18,59 +20,28 @@ function decimalFrom(
 }
 
 /**
- * All ranges are resolved in UTC to avoid depending on the server's
- * local timezone. "week" is a rolling 7-day window (today - 6 days
- * through today) rather than an ISO calendar week, and "month" is
- * the current calendar month to date — both simple, unambiguous,
- * and easy for a small business to reason about.
+ * Bill-by-bill data for the "Export XLSX" action on the Bills report —
+ * reuses billing.service's own getBills query (same include, same
+ * date-filter semantics) instead of re-querying bills here, so this
+ * never drifts from what the Billing module itself considers a bill's
+ * customer/date/status fields to be. Only COMPLETED bills are included,
+ * matching every other report's convention (cancelled bills' stored
+ * balances are frozen at creation time and don't reflect their later
+ * reversal, so they'd be misleading in a balance export).
  */
-export function resolveDateRange(query: RangeQuery): {
-  start: Date;
-  end: Date;
-} {
-  const now = new Date();
+export async function getBillsForExport(
+  businessId: bigint,
+  range: RangeQuery
+) {
+  const { start, end } = resolveDateRange(range);
 
-  if (query.range === "custom") {
-    const startStr = query.start_date!.includes("T")
-      ? query.start_date!
-      : `${query.start_date}T00:00:00.000Z`;
-    const endStr = query.end_date!.includes("T")
-      ? query.end_date!
-      : `${query.end_date}T23:59:59.999Z`;
+  const bills = await getBills(businessId, {
+    bill_status: "COMPLETED",
+    start_date: start.toISOString(),
+    end_date: end.toISOString(),
+  });
 
-    return { start: new Date(startStr), end: new Date(endStr) };
-  }
-
-  const endOfToday = new Date(now);
-  endOfToday.setUTCHours(23, 59, 59, 999);
-
-  if (query.range === "today") {
-    const startOfToday = new Date(now);
-    startOfToday.setUTCHours(0, 0, 0, 0);
-
-    return { start: startOfToday, end: endOfToday };
-  }
-
-  if (query.range === "week") {
-    const start = new Date(now);
-    start.setUTCDate(start.getUTCDate() - 6);
-    start.setUTCHours(0, 0, 0, 0);
-
-    return { start, end: endOfToday };
-  }
-
-  if (query.range === "month") {
-    const start = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0)
-    );
-
-    return { start, end: endOfToday };
-  }
-
-  // year: 1st of January of the current calendar year through today
-  const start = new Date(Date.UTC(now.getUTCFullYear(), 0, 1, 0, 0, 0, 0));
-
-  return { start, end: endOfToday };
+  return { start, end, bills };
 }
 
 export async function getSalesReport(

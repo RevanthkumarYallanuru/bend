@@ -9,6 +9,7 @@ import {
 } from "./report.validation";
 
 import {
+  getBillsForExport,
   getCustomerOutstandingReport,
   getDashboard,
   getItemSalesReport,

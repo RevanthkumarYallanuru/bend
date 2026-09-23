@@ -1,0 +1,73 @@
+import { z } from "zod";
+
+export { rangeQuerySchema as payablesInsightsQuerySchema } from "../../utils/dateRange";
+export type { RangeQuery as PayablesInsightsQuery } from "../../utils/dateRange";
+
+const paymentMethodEnum = z.enum([
+  "CASH",
+  "UPI",
+  "BANK_TRANSFER",
+  "CHEQUE",
+  "OTHER",
+]);
+
+export const createPayableSchema = z.object({
+  payee_name: z
+    .string()
+    .trim()
+    .min(1, "Name is required")
+    .max(150, "Name must be at most 150 characters"),
+
+  total_amount: z.coerce
+    .number()
+    .positive("Amount must be greater than zero"),
+
+  reason: z
+    .string()
+    .trim()
+    .min(1, "Reason is required")
+    .max(2000, "Reason must be at most 2000 characters"),
+});
+
+export const payableIdSchema = z.object({
+  id: z
+    .string()
+    .regex(/^\d+$/, "Payable ID must be a numeric string")
+    .transform((val) => BigInt(val)),
+});
+
+export const listPayablesQuerySchema = z.object({
+  status: z.enum(["PENDING", "PARTIALLY_PAID", "PAID"]).optional(),
+  search: z.string().trim().optional(),
+});
+
+export const recordPayablePaymentSchema = z.object({
+  amount: z.coerce
+    .number()
+    .positive("Payment amount must be greater than zero"),
+
+  payment_date: z
+    .string()
+    .datetime({ offset: true })
+    .optional(),
+
+  payment_method: paymentMethodEnum.optional(),
+
+  reference_number: z
+    .string()
+    .trim()
+    .max(100, "Reference number must be at most 100 characters")
+    .optional(),
+
+  notes: z
+    .string()
+    .trim()
+    .max(1000, "Notes must be at most 1000 characters")
+    .optional(),
+});
+
+export type CreatePayableInput = z.infer<typeof createPayableSchema>;
+export type ListPayablesQuery = z.infer<typeof listPayablesQuerySchema>;
+export type RecordPayablePaymentInput = z.infer<
+  typeof recordPayablePaymentSchema
+>;
