@@ -3,6 +3,7 @@ import { Router } from "express";
 import { authMiddleware } from "../../middleware/auth.middleware";
 
 import {
+  exportBillsController,
   exportItemSalesReportController,
   exportOutstandingReportController,
   exportPaymentsReportController,
@@ -22,6 +23,8 @@ router.get("/dashboard", getDashboardController);
 
 router.get("/sales", getSalesReportController);
 router.get("/sales/export", exportSalesReportController);
+
+router.get("/bills/export", exportBillsController);
 
 router.get("/payments", getPaymentsReportController);
 router.get("/payments/export", exportPaymentsReportController);

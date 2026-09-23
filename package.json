@@ -21,7 +21,8 @@
     "test:delivery": "tsx src/tests/delivery.test.ts",
     "test:reports": "tsx src/tests/reports.test.ts",
     "test:payables": "tsx src/tests/payable.test.ts",
-    "test:all": "npm run test:auth && npm run test:customers && npm run test:categories && npm run test:items && npm run test:billing && npm run test:payments && npm run test:ledger && npm run test:delivery && npm run test:reports && npm run test:payables"
+    "test:billsExport": "tsx src/tests/billsExport.test.ts",
+    "test:all": "npm run test:auth && npm run test:customers && npm run test:categories && npm run test:items && npm run test:billing && npm run test:payments && npm run test:ledger && npm run test:delivery && npm run test:reports && npm run test:payables && npm run test:billsExport"
   },
   "keywords": [],
   "author": "",

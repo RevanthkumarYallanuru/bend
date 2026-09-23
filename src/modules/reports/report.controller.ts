@@ -203,6 +203,93 @@ export async function exportOutstandingReportController(
   }
 }
 
+function toFilenameDate(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function buildBillsExportFilename(start: Date, end: Date): string {
+  const startStr = toFilenameDate(start);
+  const endStr = toFilenameDate(end);
+
+  return startStr === endStr
+    ? `bills_${startStr}.xlsx`
+    : `bills_${startStr}_to_${endStr}.xlsx`;
+}
+
+export async function exportBillsController(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const businessId = req.user!.businessId;
+
+    const range = rangeQuerySchema.parse(req.query);
+
+    const { start, end, bills } = await getBillsForExport(
+      businessId,
+      range
+    );
+
+    const rows = bills.map((bill, index) => ({
+      sl_no: index + 1,
+      bill_id: bill.bill_number,
+      date_time: bill.transaction_at,
+      customer_name: bill.customer_name_snapshot ?? "Walk-in Customer",
+      telugu_name: bill.customers?.telugu_name ?? "-",
+      bill_amount: Number(bill.grand_total),
+      amount_paid: Number(bill.amount_paid),
+      current_bill_balance: Number(bill.current_bill_balance),
+      total_balance: Number(bill.overall_balance),
+    }));
+
+    await sendXlsx(
+      res,
+      buildBillsExportFilename(start, end),
+      "Bills",
+      [
+        { header: "Sl.No.", key: "sl_no", width: 8 },
+        { header: "Bill ID", key: "bill_id", width: 16 },
+        {
+          header: "Date & Time",
+          key: "date_time",
+          width: 20,
+          numFmt: "dd-mm-yyyy hh:mm AM/PM",
+        },
+        { header: "Customer Name", key: "customer_name", width: 22 },
+        { header: "Telugu Name", key: "telugu_name", width: 22 },
+        {
+          header: "Bill Amount",
+          key: "bill_amount",
+          width: 16,
+          numFmt: '"₹"#,##0.00',
+        },
+        {
+          header: "Amount Paid by Customer",
+          key: "amount_paid",
+          width: 20,
+          numFmt: '"₹"#,##0.00',
+        },
+        {
+          header: "Current Bill Balance",
+          key: "current_bill_balance",
+          width: 18,
+          numFmt: '"₹"#,##0.00',
+        },
+        {
+          header: "Total Balance",
+          key: "total_balance",
+          width: 16,
+          numFmt: '"₹"#,##0.00',
+        },
+      ],
+      rows
+    );
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function getItemSalesReportController(
   req: AuthenticatedRequest,
   res: Response,
