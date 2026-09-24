@@ -161,6 +161,11 @@ model businesses {
   name_display_mode name_display_mode @default(ENGLISH)
   print_language    print_language    @default(ENGLISH)
   bill_note         String?           @db.VarChar(300)
+  /// Number of item rows shown in the printed bill / downloaded PDF's
+  /// item table (blank rows pad up to this count on short bills). Row
+  /// height is computed to keep the table's total height fixed
+  /// regardless of this value — see PrintableBill.tsx / billPdf.ts.
+  bill_item_row_count Int             @default(12)
   is_active         Boolean           @default(true)
   created_at        DateTime          @default(now()) @db.Timestamptz(6)
   updated_at        DateTime          @default(now()) @db.Timestamptz(6)
@@ -176,6 +181,7 @@ model businesses {
   payments          payments[]
   stock_movements   stock_movements[]
   suppliers         suppliers[]
+  supplier_payments supplier_payments[]
   users             users[]
 }
 
@@ -388,19 +394,53 @@ model payables {
 /// One row per partial/full payment made against a payable — an
 /// append-only history, the payable-side mirror of `payments`.
 model payable_payments {
-  id               BigInt          @id @default(autoincrement())
-  payable_id       BigInt
-  amount           Decimal         @db.Decimal(14, 2)
-  payment_date     DateTime        @default(now()) @db.Timestamptz(6)
-  payment_method   payment_method?
-  reference_number String?         @db.VarChar(100)
-  notes            String?
-  created_by       BigInt
-  created_at       DateTime        @default(now()) @db.Timestamptz(6)
-  payables         payables        @relation(fields: [payable_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_payable_payments_payable")
-  users            users           @relation(fields: [created_by], references: [id], onUpdate: NoAction, map: "fk_payable_payments_created_by")
+  id                  BigInt              @id @default(autoincrement())
+  payable_id          BigInt
+  amount              Decimal             @db.Decimal(14, 2)
+  payment_date        DateTime            @default(now()) @db.Timestamptz(6)
+  payment_method      payment_method?
+  reference_number    String?             @db.VarChar(100)
+  notes               String?
+  /// Set only when this row was created as one payable's slice of a
+  /// supplier bulk payment (see supplier_payments) — null for every
+  /// ordinary single-payable payment, unchanged from before.
+  supplier_payment_id BigInt?
+  created_by          BigInt
+  created_at          DateTime            @default(now()) @db.Timestamptz(6)
+  payables            payables            @relation(fields: [payable_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_payable_payments_payable")
+  users               users               @relation(fields: [created_by], references: [id], onUpdate: NoAction, map: "fk_payable_payments_created_by")
+  supplier_payments   supplier_payments?  @relation(fields: [supplier_payment_id], references: [id], onUpdate: NoAction, map: "fk_payable_payments_supplier_payment")
 
   @@index([payable_id], map: "idx_payable_payments_payable")
+  @@index([supplier_payment_id], map: "idx_payable_payments_supplier_payment")
+}
+
+/// One row per bulk payment made against a supplier — the amount is
+/// automatically allocated across that supplier's oldest unpaid/
+/// partially-paid payables first (FIFO), each slice recorded as its own
+/// payable_payments row linked back here via supplier_payment_id. This
+/// table never creates or edits a payable itself — it only pays down
+/// existing ones, the supplier-side mirror of `payments` for customers
+/// (deliberately separate: never mixed with customer payments/bills).
+model supplier_payments {
+  id               BigInt             @id @default(autoincrement())
+  business_id      BigInt
+  supplier_id      BigInt
+  amount           Decimal            @db.Decimal(14, 2)
+  payment_date     DateTime           @default(now()) @db.Timestamptz(6)
+  reason           String             @default("Bulk pay to supplier")
+  payment_method   payment_method?
+  reference_number String?            @db.VarChar(100)
+  notes            String?
+  created_by       BigInt
+  created_at       DateTime           @default(now()) @db.Timestamptz(6)
+  businesses       businesses         @relation(fields: [business_id], references: [id], onUpdate: NoAction, map: "fk_supplier_payments_business")
+  suppliers        suppliers          @relation(fields: [supplier_id], references: [id], onUpdate: NoAction, map: "fk_supplier_payments_supplier")
+  users            users              @relation(fields: [created_by], references: [id], onUpdate: NoAction, map: "fk_supplier_payments_created_by")
+  payable_payments payable_payments[]
+
+  @@index([business_id, supplier_id], map: "idx_supplier_payments_supplier")
+  @@index([business_id, payment_date], map: "idx_supplier_payments_date")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -492,6 +532,7 @@ model suppliers {
   businesses      businesses @relation(fields: [business_id], references: [id], onUpdate: NoAction, map: "fk_suppliers_business")
   payables        payables[]
   imports         imports[]
+  supplier_payments supplier_payments[]
 
   @@index([business_id], map: "idx_suppliers_business")
   @@index([business_id, name], map: "idx_suppliers_name")
@@ -517,6 +558,7 @@ model users {
   payables         payables[]
   payable_payments payable_payments[]
   stock_movements  stock_movements[]
+  supplier_payments supplier_payments[]
   businesses       businesses         @relation(fields: [business_id], references: [id], onUpdate: NoAction, map: "fk_users_business")
 
   @@unique([business_id, username], map: "uq_users_business_username")

@@ -341,6 +341,97 @@ async function runPayableTests() {
     );
 
     await runTest(
+      "Among payables sharing the same payable_date, the most recently created one sorts first",
+      async () => {
+        // Explicit matching (and non-"today") payable_date: the real
+        // page always sends an explicit date, and payable_date is a
+        // plain calendar day (midnight UTC) — two payables dated the
+        // same day genuinely tie on it, which is exactly the scenario
+        // being tested. Backdated so it can't also shift the "today"
+        // insights count the next test depends on.
+        const first = await axios.post(
+          `${API_URL}/payables`,
+          {
+            supplier_id: testSupplierId,
+            total_amount: 111,
+            reason: `Same-date first ${Date.now()}`,
+            payable_date: "2026-02-10",
+          },
+          { headers: authHeaders() }
+        );
+        createdPayableIds.push(BigInt(first.data.data.id));
+
+        const second = await axios.post(
+          `${API_URL}/payables`,
+          {
+            supplier_id: testSupplierId,
+            total_amount: 222,
+            reason: `Same-date second ${Date.now()}`,
+            payable_date: "2026-02-10",
+          },
+          { headers: authHeaders() }
+        );
+        createdPayableIds.push(BigInt(second.data.data.id));
+
+        if (first.data.data.payable_date !== second.data.data.payable_date) {
+          throw new Error(
+            "Test fixture assumption broken: the two payables don't share a payable_date"
+          );
+        }
+
+        const res = await axios.get(`${API_URL}/payables`, {
+          headers: authHeaders(),
+        });
+        const rows = res.data.data as any[];
+        const secondIndex = rows.findIndex((p) => p.id === second.data.data.id);
+        const firstIndex = rows.findIndex((p) => p.id === first.data.data.id);
+
+        if (secondIndex === -1 || firstIndex === -1) {
+          throw new Error("Both same-date payables should be present in the list");
+        }
+        if (secondIndex >= firstIndex) {
+          throw new Error(
+            `Expected the more recently created payable (index ${secondIndex}) before the earlier one (index ${firstIndex})`
+          );
+        }
+      }
+    );
+
+    await runTest("List filters by range=today and range=all", async () => {
+      const todayRes = await axios.get(`${API_URL}/payables`, {
+        params: { range: "today" },
+        headers: authHeaders(),
+      });
+      const allRes = await axios.get(`${API_URL}/payables`, {
+        params: { range: "all" },
+        headers: authHeaders(),
+      });
+      const unfilteredRes = await axios.get(`${API_URL}/payables`, {
+        headers: authHeaders(),
+      });
+
+      const todayHasManualDatePayable = (todayRes.data.data as any[]).some(
+        (p) => p.id === manualDatePayableId
+      );
+      if (todayHasManualDatePayable) {
+        throw new Error("range=today leaked the 2026-01-15-dated payable");
+      }
+
+      const allHasManualDatePayable = (allRes.data.data as any[]).some(
+        (p) => p.id === manualDatePayableId
+      );
+      if (!allHasManualDatePayable) {
+        throw new Error("range=all excluded the 2026-01-15-dated payable");
+      }
+
+      if (unfilteredRes.data.count !== allRes.data.count) {
+        throw new Error(
+          `Expected omitting range and range=all to return the same count (${unfilteredRes.data.count} vs ${allRes.data.count})`
+        );
+      }
+    });
+
+    await runTest(
       "Record a partial payment — status becomes PARTIALLY_PAID",
       async () => {
         const res = await axios.post(

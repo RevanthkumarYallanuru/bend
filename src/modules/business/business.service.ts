@@ -14,6 +14,7 @@ export async function getBusinessSettings(businessId: bigint) {
       bill_note: true,
       phone: true,
       alternate_phone: true,
+      bill_item_row_count: true,
     },
   });
 }
@@ -43,6 +44,9 @@ export async function updateBusinessSettings(
       ...(data.alternate_phone !== undefined && {
         alternate_phone: data.alternate_phone || null,
       }),
+      ...(data.bill_item_row_count !== undefined && {
+        bill_item_row_count: data.bill_item_row_count,
+      }),
       updated_at: new Date(),
     },
     select: {
@@ -54,6 +58,7 @@ export async function updateBusinessSettings(
       bill_note: true,
       phone: true,
       alternate_phone: true,
+      bill_item_row_count: true,
     },
   });
 }

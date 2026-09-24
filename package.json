@@ -25,7 +25,8 @@
     "test:suppliers": "tsx src/tests/suppliers.test.ts",
     "test:imports": "tsx src/tests/imports.test.ts",
     "test:inventory": "tsx src/tests/inventory.test.ts",
-    "test:all": "npm run test:auth && npm run test:customers && npm run test:categories && npm run test:items && npm run test:billing && npm run test:payments && npm run test:ledger && npm run test:delivery && npm run test:reports && npm run test:payables && npm run test:billsExport && npm run test:suppliers && npm run test:imports && npm run test:inventory"
+    "test:supplierPayments": "tsx src/tests/supplierPayment.test.ts",
+    "test:all": "npm run test:auth && npm run test:customers && npm run test:categories && npm run test:items && npm run test:billing && npm run test:payments && npm run test:ledger && npm run test:delivery && npm run test:reports && npm run test:payables && npm run test:billsExport && npm run test:suppliers && npm run test:imports && npm run test:inventory && npm run test:supplierPayments"
   },
   "keywords": [],
   "author": "",

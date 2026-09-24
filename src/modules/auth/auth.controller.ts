@@ -98,6 +98,7 @@ export async function meController(
           address: user.businesses.address,
           upi_id: user.businesses.upi_id,
           upi_phone: user.businesses.upi_phone,
+          bill_item_row_count: user.businesses.bill_item_row_count,
         },
       },
     });

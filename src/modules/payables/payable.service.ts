@@ -137,10 +137,24 @@ export async function getPayables(
     ];
   }
 
+  if (query.range && query.range !== "all") {
+    const { start, end } = resolveDateRange({
+      range: query.range,
+      start_date: query.start_date,
+      end_date: query.end_date,
+    });
+    where.payable_date = { gte: start, lte: end };
+  }
+
   return prisma.payables.findMany({
     where,
     include: payableInclude,
-    orderBy: { payable_date: "desc" },
+    // payable_date alone isn't a reliable sort key on its own — many
+    // payables share the same calendar date (it's admin-picked, not a
+    // timestamp), so without a tiebreaker the most recently created
+    // one among same-date rows wasn't guaranteed to land first. created_at
+    // (always a real timestamp) breaks the tie deterministically.
+    orderBy: [{ payable_date: "desc" }, { created_at: "desc" }],
   });
 }
 
@@ -212,6 +226,61 @@ async function lockPayable(
   await tx.$queryRaw`SELECT id FROM payables WHERE id = ${payableId} AND business_id = ${businessId} FOR UPDATE`;
 }
 
+/**
+ * Applies one payment amount to one already-locked, already-validated
+ * payable: creates its `payable_payments` row and updates
+ * `amount_paid`/`status`/`paid_at`. Shared by the single-payable payment
+ * path below and the supplier bulk-payment module (which calls this once
+ * per payable it allocates to, inside its own transaction) — the one
+ * place this math lives, so both paths can never drift apart.
+ * Caller is responsible for locking the payable and validating that
+ * `amount` does not exceed its remaining balance before calling this.
+ */
+export async function applyPayableAllocation(
+  tx: TransactionClient,
+  payable: { id: bigint; amount_paid: Decimal | string; total_amount: Decimal | string },
+  amount: Decimal,
+  paymentDate: Date,
+  userId: bigint,
+  options?: {
+    supplierPaymentId?: bigint;
+    paymentMethod?: Prisma.payable_paymentsCreateInput["payment_method"];
+    referenceNumber?: string;
+    notes?: string;
+  }
+) {
+  const currentPaid = decimalFrom(payable.amount_paid);
+  const totalAmount = decimalFrom(payable.total_amount);
+
+  await tx.payable_payments.create({
+    data: {
+      payable_id: payable.id,
+      amount,
+      payment_date: paymentDate,
+      payment_method: options?.paymentMethod ?? null,
+      reference_number: options?.referenceNumber ?? null,
+      notes: options?.notes ?? null,
+      supplier_payment_id: options?.supplierPaymentId ?? null,
+      created_by: userId,
+    },
+  });
+
+  const newPaid = roundMoney(currentPaid.plus(amount));
+  const newRemaining = roundMoney(totalAmount.minus(newPaid));
+  const newStatus = newRemaining.lessThanOrEqualTo(0)
+    ? "PAID"
+    : "PARTIALLY_PAID";
+
+  return tx.payables.update({
+    where: { id: payable.id },
+    data: {
+      amount_paid: newPaid,
+      status: newStatus,
+      ...(newStatus === "PAID" ? { paid_at: paymentDate } : {}),
+    },
+  });
+}
+
 export async function recordPayablePayment(
   businessId: bigint,
   userId: bigint,
@@ -253,31 +322,10 @@ export async function recordPayablePayment(
         ? new Date(data.payment_date)
         : new Date();
 
-      await tx.payable_payments.create({
-        data: {
-          payable_id: payableId,
-          amount,
-          payment_date: paymentDate,
-          payment_method: data.payment_method ?? null,
-          reference_number: data.reference_number ?? null,
-          notes: data.notes ?? null,
-          created_by: userId,
-        },
-      });
-
-      const newPaid = roundMoney(currentPaid.plus(amount));
-      const newRemaining = roundMoney(totalAmount.minus(newPaid));
-      const newStatus = newRemaining.lessThanOrEqualTo(0)
-        ? "PAID"
-        : "PARTIALLY_PAID";
-
-      await tx.payables.update({
-        where: { id: payableId },
-        data: {
-          amount_paid: newPaid,
-          status: newStatus,
-          ...(newStatus === "PAID" ? { paid_at: paymentDate } : {}),
-        },
+      await applyPayableAllocation(tx, payable, amount, paymentDate, userId, {
+        paymentMethod: data.payment_method ?? undefined,
+        referenceNumber: data.reference_number ?? undefined,
+        notes: data.notes ?? undefined,
       });
 
       return tx.payables.findFirst({

@@ -23,6 +23,12 @@ export const updateBusinessSettingsSchema = z.object({
     .trim()
     .max(20, "Alternate phone must be at most 20 characters")
     .optional(),
+  bill_item_row_count: z
+    .number()
+    .int("Bill item row count must be a whole number")
+    .min(8, "Bill item row count must be at least 8")
+    .max(15, "Bill item row count must be at most 15")
+    .optional(),
 });
 
 export type UpdateBusinessSettingsInput = z.infer<

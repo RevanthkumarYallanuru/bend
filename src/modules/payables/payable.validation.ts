@@ -44,14 +44,30 @@ export const payableIdSchema = z.object({
     .transform((val) => BigInt(val)),
 });
 
-export const listPayablesQuerySchema = z.object({
-  status: z.enum(["PENDING", "PARTIALLY_PAID", "PAID"]).optional(),
-  search: z.string().trim().optional(),
-  supplier_id: z
-    .string()
-    .regex(/^\d+$/)
-    .optional(),
-});
+export const listPayablesQuerySchema = z
+  .object({
+    status: z.enum(["PENDING", "PARTIALLY_PAID", "PAID"]).optional(),
+    search: z.string().trim().optional(),
+    supplier_id: z
+      .string()
+      .regex(/^\d+$/)
+      .optional(),
+    // Unset (or "all") means no date filter at all — everything ever
+    // recorded, matching the page's existing default behavior. Only
+    // filters when the admin explicitly picks a range.
+    range: z.enum(["today", "week", "month", "year", "all", "custom"]).optional(),
+    start_date: z.string().trim().optional(),
+    end_date: z.string().trim().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.range === "custom" && (!data.start_date || !data.end_date)) {
+      ctx.addIssue({
+        code: "custom",
+        message: "start_date and end_date are required when range=custom",
+        path: ["start_date"],
+      });
+    }
+  });
 
 export const recordPayablePaymentSchema = z.object({
   amount: z.coerce

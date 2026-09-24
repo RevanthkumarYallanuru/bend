@@ -12,6 +12,10 @@ import {
   listSuppliersController,
   updateSupplierController,
 } from "./supplier.controller";
+import {
+  createSupplierBulkPaymentController,
+  listSupplierPaymentsController,
+} from "../supplier-payments/supplierPayment.controller";
 
 const router = Router();
 
@@ -27,6 +31,10 @@ router.get("/balances", getSupplierBalancesController);
 router.get("/:id", getSupplierController);
 
 router.get("/:id/balance", getSupplierBalanceController);
+
+router.get("/:id/payments", listSupplierPaymentsController);
+
+router.post("/:id/payments", createSupplierBulkPaymentController);
 
 router.patch("/:id", updateSupplierController);
 
