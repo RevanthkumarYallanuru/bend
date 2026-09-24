@@ -91,7 +91,11 @@ async function runInventoryTests() {
 
       const customerRes = await axios.post(
         `${API_URL}/customers`,
-        { name: `Inventory Test Customer ${Date.now()}`, phone: "9876500000" },
+        {
+          customer_code: `INV-CUST-${Date.now()}`,
+          english_name: `Inventory Test Customer ${Date.now()}`,
+          phone: "9876500000",
+        },
         { headers: authHeaders() }
       );
       testCustomerId = customerRes.data.data.id;
