@@ -399,6 +399,7 @@ async function runInventoryTests() {
 
       for (const supplierId of createdSupplierIds) {
         await prisma.payables.deleteMany({ where: { supplier_id: supplierId } });
+        await prisma.supplier_payments.deleteMany({ where: { supplier_id: supplierId } });
         await prisma.suppliers.deleteMany({ where: { id: supplierId } });
       }
 

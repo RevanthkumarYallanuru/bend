@@ -144,9 +144,45 @@ export async function getCustomerBalance(
 
   const balance = roundMoney(totalDebit.minus(totalCredit));
 
+  // Sales/Payments totals over the customer's ENTIRE history, computed
+  // in the database — never from a page of entries, so a long history
+  // can't make them miss anything. A reversal is its own ADJUSTMENT row
+  // (the original SALE/PAYMENT is never edited), so it is netted out of
+  // the matching bucket, keeping "sales - payments" equal to the balance.
+  const base = { business_id: businessId, customer_id: customerId };
+  const [sales, salesReversed, payments, paymentsReversed] = await Promise.all([
+    prisma.ledger_entries.aggregate({
+      where: { ...base, entry_type: "SALE" },
+      _sum: { debit: true },
+    }),
+    prisma.ledger_entries.aggregate({
+      where: { ...base, entry_type: "ADJUSTMENT", bill_id: { not: null } },
+      _sum: { credit: true },
+    }),
+    prisma.ledger_entries.aggregate({
+      where: { ...base, entry_type: "PAYMENT" },
+      _sum: { credit: true },
+    }),
+    prisma.ledger_entries.aggregate({
+      where: { ...base, entry_type: "ADJUSTMENT", payment_id: { not: null } },
+      _sum: { debit: true },
+    }),
+  ]);
+
+  const totalSales = roundMoney(
+    decimalFrom(sales._sum.debit).minus(decimalFrom(salesReversed._sum.credit))
+  );
+  const totalPayments = roundMoney(
+    decimalFrom(payments._sum.credit).minus(
+      decimalFrom(paymentsReversed._sum.debit)
+    )
+  );
+
   return {
     customer_id: customerId,
     balance: balance.toString(),
+    total_sales: totalSales.toString(),
+    total_payments: totalPayments.toString(),
   };
 }
 

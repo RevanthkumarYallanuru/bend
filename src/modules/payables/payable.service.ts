@@ -319,7 +319,25 @@ export async function recordPayablePayment(
         ? new Date(data.payment_date)
         : new Date();
 
+      // Every payment to a supplier gets a supplier_payments header (the
+      // supplier's Payment History), not just bulk ones — a single-payable
+      // payment is simply a header with one allocation.
+      const header = await tx.supplier_payments.create({
+        data: {
+          business_id: businessId,
+          supplier_id: payable.supplier_id,
+          amount,
+          payment_date: paymentDate,
+          reason: `Payment - ${payable.reason}`.slice(0, 200),
+          payment_method: data.payment_method ?? null,
+          reference_number: data.reference_number ?? null,
+          notes: data.notes ?? null,
+          created_by: userId,
+        },
+      });
+
       await applyPayableAllocation(tx, payable, amount, paymentDate, userId, {
+        supplierPaymentId: header.id,
         paymentMethod: data.payment_method ?? undefined,
         referenceNumber: data.reference_number ?? undefined,
         notes: data.notes ?? undefined,

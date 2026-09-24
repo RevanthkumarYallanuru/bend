@@ -546,6 +546,7 @@ async function runBillsExportTests() {
         await prisma.bill_item_weights.deleteMany({
           where: { bill_items: { bill_id: billId } },
         });
+        await prisma.stock_movements.deleteMany({ where: { bill_id: billId } });
         await prisma.bill_items.deleteMany({ where: { bill_id: billId } });
         await prisma.ledger_entries.deleteMany({ where: { bill_id: billId } });
         await prisma.audit_logs.deleteMany({
@@ -566,6 +567,7 @@ async function runBillsExportTests() {
       }
 
       for (const itemId of createdItemIds) {
+        await prisma.stock_movements.deleteMany({ where: { item_id: itemId } });
         await prisma.item_units.deleteMany({ where: { item_id: itemId } });
         await prisma.items.deleteMany({ where: { id: itemId } });
       }

@@ -767,6 +767,7 @@ async function runPayableTests() {
       }
 
       for (const supplierId of createdSupplierIds) {
+        await prisma.supplier_payments.deleteMany({ where: { supplier_id: supplierId } });
         await prisma.suppliers.deleteMany({ where: { id: supplierId } });
       }
 

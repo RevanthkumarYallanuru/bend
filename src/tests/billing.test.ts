@@ -1338,11 +1338,13 @@ async function runBillingTests() {
         await prisma.payment_allocations.deleteMany({ where: { bill_id: billId } });
         await prisma.ledger_entries.deleteMany({ where: { bill_id: billId } });
         await prisma.audit_logs.deleteMany({ where: { entity_type: "bill", entity_id: billId } });
+        await prisma.stock_movements.deleteMany({ where: { bill_id: billId } });
         await prisma.bill_items.deleteMany({ where: { bill_id: billId } });
         await prisma.bills.deleteMany({ where: { id: billId } });
       }
 
       for (const itemId of createdItemIds) {
+        await prisma.stock_movements.deleteMany({ where: { item_id: itemId } });
         await prisma.item_units.deleteMany({ where: { item_id: itemId } });
         await prisma.items.deleteMany({ where: { id: itemId } });
       }

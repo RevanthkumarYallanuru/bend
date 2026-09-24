@@ -513,6 +513,7 @@ async function runReportsTests() {
         await prisma.audit_logs.deleteMany({
           where: { entity_type: "bill", entity_id: billId },
         });
+        await prisma.stock_movements.deleteMany({ where: { bill_id: billId } });
         await prisma.bill_items.deleteMany({
           where: { bill_id: billId },
         });
@@ -543,6 +544,7 @@ async function runReportsTests() {
       }
 
       for (const itemId of createdItemIds) {
+        await prisma.stock_movements.deleteMany({ where: { item_id: itemId } });
         await prisma.item_units.deleteMany({
           where: { item_id: itemId },
         });

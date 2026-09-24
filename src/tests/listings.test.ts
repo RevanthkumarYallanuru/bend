@@ -197,6 +197,63 @@ async function runListingTests() {
     if (!checked) throw new Error("No customer with 2+ ledger entries found to verify ordering");
   });
 
+  await runTest("Ledger totals come from the whole history and paging loses nothing", async () => {
+    const customers = await axios.get(`${API_URL}/customers`, { headers: authHeaders() });
+    let checked = 0;
+
+    for (const customer of (customers.data.data as any[]).slice(0, 60)) {
+      const full = await axios.get(`${API_URL}/ledger/customer/${customer.id}`, {
+        params: { limit: 500 },
+        headers: authHeaders(),
+      });
+      const entries = full.data.data as any[];
+      if (entries.length < 3) continue;
+
+      // Totals recomputed from every entry, the same way the server does.
+      const sum = (rows: any[], key: string) =>
+        rows.reduce((total, row) => total + Number(row[key]), 0);
+      const expectedSales =
+        sum(entries.filter((e) => e.entry_type === "SALE"), "debit") -
+        sum(entries.filter((e) => e.entry_type === "ADJUSTMENT" && e.bill_id), "credit");
+      const expectedPayments =
+        sum(entries.filter((e) => e.entry_type === "PAYMENT"), "credit") -
+        sum(entries.filter((e) => e.entry_type === "ADJUSTMENT" && e.payment_id), "debit");
+
+      const balance = await axios.get(`${API_URL}/ledger/customer/${customer.id}/balance`, {
+        headers: authHeaders(),
+      });
+      if (Math.abs(Number(balance.data.data.total_sales) - expectedSales) > 0.005) {
+        throw new Error(`Customer ${customer.id}: total_sales ${balance.data.data.total_sales} != ${expectedSales}`);
+      }
+      if (Math.abs(Number(balance.data.data.total_payments) - expectedPayments) > 0.005) {
+        throw new Error(`Customer ${customer.id}: total_payments ${balance.data.data.total_payments} != ${expectedPayments}`);
+      }
+
+      // Walk the same ledger two entries at a time: every entry must
+      // come back exactly once, in the same order.
+      const paged: string[] = [];
+      for (let page = 1; ; page++) {
+        const res = await axios.get(`${API_URL}/ledger/customer/${customer.id}`, {
+          params: { page, limit: 2 },
+          headers: authHeaders(),
+        });
+        if (res.data.total !== entries.length) {
+          throw new Error(`Customer ${customer.id}: total ${res.data.total} != ${entries.length}`);
+        }
+        paged.push(...(res.data.data as any[]).map((e) => e.id));
+        if (res.data.data.length === 0 || paged.length >= res.data.total) break;
+      }
+      if (JSON.stringify(paged) !== JSON.stringify(entries.map((e) => e.id))) {
+        throw new Error(`Customer ${customer.id}: paged entries differ from the full list`);
+      }
+
+      checked++;
+      if (checked >= 5) break;
+    }
+
+    if (checked === 0) throw new Error("No customer with 3+ ledger entries found to verify");
+  });
+
   await runTest("Every Excel export returns a valid .xlsx file", async () => {
     const suppliers = await axios.get(`${API_URL}/suppliers`, { headers: authHeaders() });
     const supplierId = (suppliers.data.data as any[])[0]?.id;

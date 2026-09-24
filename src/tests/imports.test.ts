@@ -452,16 +452,19 @@ async function runImportTests() {
         });
       }
       for (const importId of createdImportIds) {
+        await prisma.stock_movements.deleteMany({ where: { import_id: importId } });
         await prisma.payables.deleteMany({ where: { import_id: importId } });
         await prisma.imports.deleteMany({ where: { id: importId } });
       }
 
       for (const supplierId of createdSupplierIds) {
         await prisma.payables.deleteMany({ where: { supplier_id: supplierId } });
+        await prisma.supplier_payments.deleteMany({ where: { supplier_id: supplierId } });
         await prisma.suppliers.deleteMany({ where: { id: supplierId } });
       }
 
       for (const itemId of createdItemIds) {
+        await prisma.stock_movements.deleteMany({ where: { item_id: itemId } });
         await prisma.item_units.deleteMany({ where: { item_id: itemId } });
         await prisma.items.deleteMany({ where: { id: itemId } });
       }
