@@ -1,4 +1,5 @@
 import { prisma } from "../../config/database";
+import { rangeToBounds } from "../../utils/dateRange";
 import type { Prisma } from "../../../generated/prisma/client";
 
 import type {
@@ -347,28 +348,16 @@ export async function getDeliveries(
     where.delivery_agent_id = BigInt(query.delivery_agent_id);
   }
 
-  if (query.start_date || query.end_date) {
-    where.created_at = {};
+  const dateBounds = rangeToBounds(query);
 
-    if (query.start_date) {
-      const startDateStr = query.start_date.includes("T")
-        ? query.start_date
-        : `${query.start_date}T00:00:00.000Z`;
-      where.created_at.gte = new Date(startDateStr);
-    }
-
-    if (query.end_date) {
-      const endDateStr = query.end_date.includes("T")
-        ? query.end_date
-        : `${query.end_date}T23:59:59.999Z`;
-      where.created_at.lte = new Date(endDateStr);
-    }
+  if (dateBounds) {
+    where.created_at = dateBounds;
   }
 
   return prisma.bill_deliveries.findMany({
     where,
     include: deliveryInclude,
-    orderBy: { created_at: "desc" },
+    orderBy: [{ created_at: "desc" }, { id: "desc" }],
   });
 }
 

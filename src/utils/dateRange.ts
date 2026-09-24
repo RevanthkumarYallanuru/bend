@@ -1,6 +1,36 @@
 import { z } from "zod";
 
-const rangeEnum = z.enum(["today", "week", "month", "year", "all", "custom"]);
+export const rangeEnum = z.enum([
+  "today",
+  "last3days",
+  "week",
+  "last30days",
+  "month",
+  "year",
+  "all",
+  "custom",
+]);
+
+/** Optional range fields shared by every list endpoint that offers the
+ * quick date filter. Unset (or "all") means no date filter at all. */
+export const optionalRangeFields = {
+  range: rangeEnum.optional(),
+  start_date: z.string().trim().optional(),
+  end_date: z.string().trim().optional(),
+};
+
+export function refineCustomRange(
+  data: { range?: string; start_date?: string; end_date?: string },
+  ctx: z.RefinementCtx
+) {
+  if (data.range === "custom" && (!data.start_date || !data.end_date)) {
+    ctx.addIssue({
+      code: "custom",
+      message: "start_date and end_date are required when range=custom",
+      path: ["start_date"],
+    });
+  }
+}
 
 export const rangeQuerySchema = z
   .object({
@@ -55,9 +85,17 @@ export function resolveDateRange(query: RangeQuery): {
     return { start: startOfToday, end: endOfToday };
   }
 
-  if (query.range === "week") {
+  if (
+    query.range === "last3days" ||
+    query.range === "week" ||
+    query.range === "last30days"
+  ) {
+    // Rolling windows that include today: 3 days = today + 2 back,
+    // week = 7 days, 30 days = today + 29 back.
+    const daysBack =
+      query.range === "last3days" ? 2 : query.range === "week" ? 6 : 29;
     const start = new Date(now);
-    start.setUTCDate(start.getUTCDate() - 6);
+    start.setUTCDate(start.getUTCDate() - daysBack);
     start.setUTCHours(0, 0, 0, 0);
 
     return { start, end: endOfToday };
@@ -82,4 +120,50 @@ export function resolveDateRange(query: RangeQuery): {
   const start = new Date(Date.UTC(now.getUTCFullYear(), 0, 1, 0, 0, 0, 0));
 
   return { start, end: endOfToday };
+}
+
+/**
+ * Turns a list endpoint's optional range fields into Prisma-style date
+ * bounds, or undefined when no date filter applies. `range` wins when
+ * present ("all" = no filter); a bare start_date/end_date (the older,
+ * pre-range API) still works so existing callers keep behaving the same.
+ */
+export function rangeToBounds(query: {
+  range?: RangeQuery["range"];
+  start_date?: string;
+  end_date?: string;
+}): { gte?: Date; lte?: Date } | undefined {
+  if (query.range) {
+    if (query.range === "all") return undefined;
+
+    const { start, end } = resolveDateRange({
+      range: query.range,
+      start_date: query.start_date,
+      end_date: query.end_date,
+    });
+
+    return { gte: start, lte: end };
+  }
+
+  if (!query.start_date && !query.end_date) return undefined;
+
+  const bounds: { gte?: Date; lte?: Date } = {};
+
+  if (query.start_date) {
+    bounds.gte = new Date(
+      query.start_date.includes("T")
+        ? query.start_date
+        : `${query.start_date}T00:00:00.000Z`
+    );
+  }
+
+  if (query.end_date) {
+    bounds.lte = new Date(
+      query.end_date.includes("T")
+        ? query.end_date
+        : `${query.end_date}T23:59:59.999Z`
+    );
+  }
+
+  return bounds;
 }

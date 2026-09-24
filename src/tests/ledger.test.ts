@@ -244,8 +244,10 @@ async function runLedgerTests() {
      * 6. CUSTOMER LEDGER RETRIEVAL
      */
     await runTest("Customer ledger retrieval", async () => {
+      // The API is newest-first by default; these assertions walk the
+      // running balance chronologically, so ask for oldest-first.
       const response = await axios.get(
-        `${API_URL}/ledger/customer/${testCustomerId}`,
+        `${API_URL}/ledger/customer/${testCustomerId}?order=asc`,
         { headers: authHeaders() }
       );
 

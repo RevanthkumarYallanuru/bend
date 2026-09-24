@@ -52,9 +52,7 @@ export async function getCategories(
         : {}),
     },
 
-    orderBy: {
-      name: "asc",
-    },
+    orderBy: [{ id: "desc" }],
   });
 }
 

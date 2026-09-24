@@ -31,6 +31,8 @@ import {
   updateDeliveryStatus,
 } from "./delivery.service";
 
+import { sendXlsx } from "../../utils/xlsx";
+
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
 
 function serializeBigInt<T>(data: T): T {
@@ -275,6 +277,48 @@ export async function listDeliveriesController(
       count: deliveries.length,
       data: serializeBigInt(deliveries),
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function exportDeliveriesController(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const businessId = req.user!.businessId;
+
+    const query = listDeliveriesQuerySchema.parse(req.query);
+
+    const deliveries = await getDeliveries(businessId, query);
+
+    const rows = deliveries.map((delivery, index) => ({
+      sl_no: index + 1,
+      bill_number: delivery.bills.bill_number,
+      customer: delivery.bills.customer_name_snapshot ?? "Walk-in Customer",
+      bill_amount: Number(delivery.bills.grand_total),
+      agent: delivery.delivery_agents?.name ?? "",
+      status: delivery.status,
+      date: delivery.created_at,
+    }));
+
+    await sendXlsx(
+      res,
+      `deliveries-${Date.now()}.xlsx`,
+      "Deliveries",
+      [
+        { header: "Sl.No.", key: "sl_no", width: 8 },
+        { header: "Bill No.", key: "bill_number", width: 16 },
+        { header: "Customer", key: "customer", width: 28 },
+        { header: "Bill Amount", key: "bill_amount", width: 15, numFmt: "#,##0.00" },
+        { header: "Delivery Agent", key: "agent", width: 22 },
+        { header: "Status", key: "status", width: 14 },
+        { header: "Assigned On", key: "date", width: 22, numFmt: "dd-mmm-yyyy hh:mm" },
+      ],
+      rows
+    );
   } catch (error) {
     next(error);
   }

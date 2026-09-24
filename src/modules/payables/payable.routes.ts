@@ -4,6 +4,7 @@ import { authMiddleware } from "../../middleware/auth.middleware";
 
 import {
   createPayableController,
+  exportPayablesController,
   getPayableController,
   getPayablesInsightsController,
   listPayablesController,
@@ -18,7 +19,8 @@ router.post("/", createPayableController);
 
 router.get("/", listPayablesController);
 
-// Must come before "/:id" — otherwise "insights" would be parsed as an id.
+// Must come before "/:id" — otherwise "insights"/"export" would be parsed as an id.
+router.get("/export", exportPayablesController);
 router.get("/insights", getPayablesInsightsController);
 
 router.get("/:id", getPayableController);

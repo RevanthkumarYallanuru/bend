@@ -31,7 +31,8 @@ function decimalFrom(
  */
 export async function getBillsForExport(
   businessId: bigint,
-  range: RangeQuery
+  range: RangeQuery,
+  customerId?: string
 ) {
   const { start, end } = resolveDateRange(range);
 
@@ -39,6 +40,7 @@ export async function getBillsForExport(
     bill_status: "COMPLETED",
     start_date: start.toISOString(),
     end_date: end.toISOString(),
+    ...(customerId ? { customer_id: customerId } : {}),
   });
 
   return { start, end, bills };
@@ -304,12 +306,12 @@ export async function getDashboard(
     }),
     prisma.bills.findMany({
       where: { business_id: businessId },
-      orderBy: { transaction_at: "desc" },
+      orderBy: [{ transaction_at: "desc" }, { id: "desc" }],
       take: 5,
     }),
     prisma.payments.findMany({
       where: { business_id: businessId },
-      orderBy: { payment_at: "desc" },
+      orderBy: [{ payment_at: "desc" }, { id: "desc" }],
       take: 5,
     }),
   ]);

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { optionalRangeFields, refineCustomRange } from "../../utils/dateRange";
+
 const deliveryStatusEnum = z.enum([
   "GENERATED",
   "SENT",
@@ -144,7 +146,8 @@ export const billIdParamSchema = z.object({
     .transform((val) => BigInt(val)),
 });
 
-export const listDeliveriesQuerySchema = z.object({
+export const listDeliveriesQuerySchema = z
+  .object({
   status: deliveryStatusEnum.optional(),
 
   delivery_agent_id: z
@@ -154,10 +157,9 @@ export const listDeliveriesQuerySchema = z.object({
 
   search: z.string().trim().optional(),
 
-  start_date: z.string().trim().optional(),
-
-  end_date: z.string().trim().optional(),
-});
+  ...optionalRangeFields,
+  })
+  .superRefine(refineCustomRange);
 
 export type CreateAgentInput = z.infer<typeof createAgentSchema>;
 export type UpdateAgentInput = z.infer<typeof updateAgentSchema>;

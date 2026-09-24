@@ -1,10 +1,14 @@
 import { Decimal } from "@prisma/client/runtime/client";
 
 import { prisma } from "../../config/database";
+import { rangeToBounds } from "../../utils/dateRange";
 import { applyPayableAllocation } from "../payables/payable.service";
 import type { Prisma } from "../../../generated/prisma/client";
 
-import type { CreateSupplierBulkPaymentInput } from "./supplierPayment.validation";
+import type {
+  CreateSupplierBulkPaymentInput,
+  ListSupplierPaymentsQuery,
+} from "./supplierPayment.validation";
 
 /**
  * Supplier bulk payments — a single amount automatically allocated
@@ -171,7 +175,8 @@ export async function createSupplierBulkPayment(
 
 export async function getSupplierPayments(
   businessId: bigint,
-  supplierId: bigint
+  supplierId: bigint,
+  query: ListSupplierPaymentsQuery = {}
 ) {
   const supplier = await prisma.suppliers.findFirst({
     where: { id: supplierId, business_id: businessId },
@@ -181,9 +186,15 @@ export async function getSupplierPayments(
     return null;
   }
 
+  const dateBounds = rangeToBounds(query);
+
   return prisma.supplier_payments.findMany({
-    where: { business_id: businessId, supplier_id: supplierId },
+    where: {
+      business_id: businessId,
+      supplier_id: supplierId,
+      ...(dateBounds ? { payment_date: dateBounds } : {}),
+    },
     include: supplierPaymentInclude,
-    orderBy: { payment_date: "desc" },
+    orderBy: [{ payment_date: "desc" }, { id: "desc" }],
   });
 }

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { optionalRangeFields, refineCustomRange } from "../../utils/dateRange";
+
 const paymentMethodEnum = z.enum([
   "CASH",
   "UPI",
@@ -112,7 +114,8 @@ export const customerIdParamSchema = z.object({
     .transform((val) => BigInt(val)),
 });
 
-export const listPaymentsQuerySchema = z.object({
+export const listPaymentsQuerySchema = z
+  .object({
   customer_id: z
     .string()
     .regex(/^\d+$/)
@@ -122,10 +125,9 @@ export const listPaymentsQuerySchema = z.object({
 
   search: z.string().trim().optional(),
 
-  start_date: z.string().trim().optional(),
-
-  end_date: z.string().trim().optional(),
-});
+  ...optionalRangeFields,
+  })
+  .superRefine(refineCustomRange);
 
 export type CreatePaymentInput = z.infer<typeof createPaymentSchema>;
 export type ListPaymentsQuery = z.infer<typeof listPaymentsQuerySchema>;

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { optionalRangeFields, refineCustomRange } from "../../utils/dateRange";
+
 const billItemSchema = z.object({
   item_id: z
     .string()
@@ -124,7 +126,8 @@ export const cancelBillSchema = z.object({
     .optional(),
 });
 
-export const listBillsQuerySchema = z.object({
+export const listBillsQuerySchema = z
+  .object({
   customer_id: z
     .string()
     .regex(/^\d+$/)
@@ -138,10 +141,9 @@ export const listBillsQuerySchema = z.object({
 
   search: z.string().trim().optional(),
 
-  start_date: z.string().trim().optional(),
-
-  end_date: z.string().trim().optional(),
-});
+  ...optionalRangeFields,
+  })
+  .superRefine(refineCustomRange);
 
 export type CreateBillInput = z.infer<typeof createBillSchema>;
 export type ListBillsQuery = z.infer<typeof listBillsQuerySchema>;

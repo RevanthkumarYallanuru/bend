@@ -193,6 +193,7 @@ export async function getItemStockMovements(
       bills: { select: { bill_number: true } },
       imports: { select: { id: true } },
     },
-    orderBy: [{ transaction_at: "asc" }, { id: "asc" }],
+    // Newest first; each row carries its own stored balance_after.
+    orderBy: [{ transaction_at: "desc" }, { id: "desc" }],
   });
 }

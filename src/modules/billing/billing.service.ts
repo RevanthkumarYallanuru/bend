@@ -1,6 +1,7 @@
 import { Decimal } from "@prisma/client/runtime/client";
 
 import { prisma } from "../../config/database";
+import { rangeToBounds } from "../../utils/dateRange";
 import { recordStockMovement } from "../inventory/inventory.service";
 import type { Prisma } from "../../../generated/prisma/client";
 
@@ -598,22 +599,10 @@ export async function getBills(
     where.bill_type = query.bill_type;
   }
 
-  if (query.start_date || query.end_date) {
-    where.transaction_at = {};
+  const dateBounds = rangeToBounds(query);
 
-    if (query.start_date) {
-      const startDateStr = query.start_date.includes("T")
-        ? query.start_date
-        : `${query.start_date}T00:00:00.000Z`;
-      where.transaction_at.gte = new Date(startDateStr);
-    }
-
-    if (query.end_date) {
-      const endDateStr = query.end_date.includes("T")
-        ? query.end_date
-        : `${query.end_date}T23:59:59.999Z`;
-      where.transaction_at.lte = new Date(endDateStr);
-    }
+  if (dateBounds) {
+    where.transaction_at = dateBounds;
   }
 
   if (query.search) {
@@ -668,9 +657,7 @@ export async function getBills(
   return prisma.bills.findMany({
     where,
     include: billInclude,
-    orderBy: {
-      transaction_at: "desc",
-    },
+    orderBy: [{ transaction_at: "desc" }, { id: "desc" }],
   });
 }
 

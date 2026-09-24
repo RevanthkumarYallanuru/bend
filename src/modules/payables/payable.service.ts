@@ -1,7 +1,7 @@
 import { Decimal } from "@prisma/client/runtime/client";
 
 import { prisma } from "../../config/database";
-import { resolveDateRange } from "../../utils/dateRange";
+import { rangeToBounds, resolveDateRange } from "../../utils/dateRange";
 import type { Prisma } from "../../../generated/prisma/client";
 
 import type {
@@ -137,13 +137,10 @@ export async function getPayables(
     ];
   }
 
-  if (query.range && query.range !== "all") {
-    const { start, end } = resolveDateRange({
-      range: query.range,
-      start_date: query.start_date,
-      end_date: query.end_date,
-    });
-    where.payable_date = { gte: start, lte: end };
+  const dateBounds = rangeToBounds(query);
+
+  if (dateBounds) {
+    where.payable_date = dateBounds;
   }
 
   return prisma.payables.findMany({

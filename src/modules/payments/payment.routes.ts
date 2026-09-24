@@ -8,6 +8,7 @@ import {
 import {
   cancelPaymentController,
   createPaymentController,
+  exportPaymentsController,
   getPaymentByNumberController,
   getPaymentController,
   listPaymentsController,
@@ -20,6 +21,9 @@ router.use(authMiddleware);
 router.post("/", createPaymentController);
 
 router.get("/", listPaymentsController);
+
+// Must come before "/:id" — otherwise "export" would be parsed as an id.
+router.get("/export", exportPaymentsController);
 
 router.get(
   "/number/:paymentNumber",

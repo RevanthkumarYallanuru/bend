@@ -6,6 +6,7 @@ import {
   assignDeliveryController,
   getDeliveryByBillController,
   getDeliveryController,
+  exportDeliveriesController,
   listDeliveriesController,
   reassignDeliveryAgentController,
   updateDeliveryStatusController,
@@ -20,6 +21,9 @@ router.post("/", assignDeliveryController);
 
 // List / filter delivery history.
 router.get("/", listDeliveriesController);
+
+// Must come before "/:id" — otherwise "export" would be parsed as an id.
+router.get("/export", exportDeliveriesController);
 
 // Look up the delivery for a specific bill (before :id so the
 // literal "bill" segment isn't swallowed by the :id param).

@@ -208,7 +208,10 @@ async function runInventoryTests() {
           `${API_URL}/inventory/items/${testItemId}/movements`,
           { headers: authHeaders() }
         );
-        const movements = res.data.data as any[];
+        // API returns newest first; the assertions below read the audit
+        // trail in chronological order.
+        const newestFirst = res.data.data as any[];
+        const movements = [...newestFirst].reverse();
         if (movements.length !== 2) {
           throw new Error(`Expected 2 movements, got ${movements.length}`);
         }
@@ -251,7 +254,10 @@ async function runInventoryTests() {
           `${API_URL}/inventory/items/${testItemId}/movements`,
           { headers: authHeaders() }
         );
-        const movements = res.data.data as any[];
+        // API returns newest first; the assertions below read the audit
+        // trail in chronological order.
+        const newestFirst = res.data.data as any[];
+        const movements = [...newestFirst].reverse();
         if (movements.length !== 3) {
           throw new Error(`Expected 3 movements after cancellation, got ${movements.length}`);
         }

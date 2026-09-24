@@ -81,7 +81,8 @@ export async function listItemsController(
       req.user!.businessId,
       search,
       categoryId,
-      includeInactive
+      includeInactive,
+      req.query.sort === "name" ? "name" : "newest"
     );
 
     res.status(200).json({

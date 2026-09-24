@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { optionalRangeFields, refineCustomRange } from "../../utils/dateRange";
+
 export const createImportSchema = z
   .object({
     supplier_id: z.string().regex(/^\d+$/, "A supplier must be selected"),
@@ -56,12 +58,15 @@ export const importIdSchema = z.object({
     .transform((val) => BigInt(val)),
 });
 
-export const listImportsQuerySchema = z.object({
-  supplier_id: z
-    .string()
-    .regex(/^\d+$/)
-    .optional(),
-});
+export const listImportsQuerySchema = z
+  .object({
+    supplier_id: z
+      .string()
+      .regex(/^\d+$/)
+      .optional(),
+    ...optionalRangeFields,
+  })
+  .superRefine(refineCustomRange);
 
 export type CreateImportInput = z.infer<typeof createImportSchema>;
 export type ListImportsQuery = z.infer<typeof listImportsQuerySchema>;

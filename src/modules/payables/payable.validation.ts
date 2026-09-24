@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { optionalRangeFields, refineCustomRange } from "../../utils/dateRange";
+
 export { rangeQuerySchema as payablesInsightsQuerySchema } from "../../utils/dateRange";
 export type { RangeQuery as PayablesInsightsQuery } from "../../utils/dateRange";
 
@@ -53,21 +55,10 @@ export const listPayablesQuerySchema = z
       .regex(/^\d+$/)
       .optional(),
     // Unset (or "all") means no date filter at all — everything ever
-    // recorded, matching the page's existing default behavior. Only
-    // filters when the admin explicitly picks a range.
-    range: z.enum(["today", "week", "month", "year", "all", "custom"]).optional(),
-    start_date: z.string().trim().optional(),
-    end_date: z.string().trim().optional(),
+    // recorded, matching the page's existing default behavior.
+    ...optionalRangeFields,
   })
-  .superRefine((data, ctx) => {
-    if (data.range === "custom" && (!data.start_date || !data.end_date)) {
-      ctx.addIssue({
-        code: "custom",
-        message: "start_date and end_date are required when range=custom",
-        path: ["start_date"],
-      });
-    }
-  });
+  .superRefine(refineCustomRange);
 
 export const recordPayablePaymentSchema = z.object({
   amount: z.coerce

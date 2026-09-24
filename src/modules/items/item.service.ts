@@ -31,7 +31,8 @@ export async function getItems(
   businessId: bigint,
   search?: string,
   categoryId?: bigint,
-  includeInactive = false
+  includeInactive = false,
+  sort: "newest" | "name" = "newest"
 ) {
   return prisma.items.findMany({
     where: {
@@ -84,9 +85,13 @@ export async function getItems(
       },
     },
 
-    orderBy: {
-      english_name: "asc",
-    },
+    // Newest first by default; "name" (alphabetical) is what the
+    // billing/import item pickers ask for so their search order is
+    // unchanged.
+    orderBy:
+      sort === "name"
+        ? [{ english_name: "asc" }, { id: "desc" }]
+        : [{ id: "desc" }],
   });
 }
 

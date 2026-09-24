@@ -1,6 +1,7 @@
 import { Decimal } from "@prisma/client/runtime/client";
 
 import { prisma } from "../../config/database";
+import { rangeToBounds } from "../../utils/dateRange";
 import { createPayable } from "../payables/payable.service";
 import { recordStockMovement } from "../inventory/inventory.service";
 import type { Prisma } from "../../../generated/prisma/client";
@@ -144,10 +145,16 @@ export async function getImports(
     where.supplier_id = BigInt(query.supplier_id);
   }
 
+  const dateBounds = rangeToBounds(query);
+
+  if (dateBounds) {
+    where.import_date = dateBounds;
+  }
+
   return prisma.imports.findMany({
     where,
     include: importInclude,
-    orderBy: { import_date: "desc" },
+    orderBy: [{ import_date: "desc" }, { id: "desc" }],
   });
 }
 

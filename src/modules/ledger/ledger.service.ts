@@ -1,6 +1,7 @@
 import { Decimal } from "@prisma/client/runtime/client";
 
 import { prisma } from "../../config/database";
+import { rangeToBounds } from "../../utils/dateRange";
 import type { Prisma } from "../../../generated/prisma/client";
 
 import type { LedgerQuery, OpeningBalanceInput } from "./ledger.validation";
@@ -46,7 +47,7 @@ async function ensureCustomer(
 function buildLedgerWhere(
   businessId: bigint,
   customerId: bigint,
-  query: Pick<LedgerQuery, "entry_type" | "start_date" | "end_date">
+  query: Pick<LedgerQuery, "entry_type" | "range" | "start_date" | "end_date">
 ): Prisma.ledger_entriesWhereInput {
   const where: Prisma.ledger_entriesWhereInput = {
     business_id: businessId,
@@ -57,22 +58,10 @@ function buildLedgerWhere(
     where.entry_type = query.entry_type;
   }
 
-  if (query.start_date || query.end_date) {
-    where.transaction_at = {};
+  const dateBounds = rangeToBounds(query);
 
-    if (query.start_date) {
-      const startDateStr = query.start_date.includes("T")
-        ? query.start_date
-        : `${query.start_date}T00:00:00.000Z`;
-      where.transaction_at.gte = new Date(startDateStr);
-    }
-
-    if (query.end_date) {
-      const endDateStr = query.end_date.includes("T")
-        ? query.end_date
-        : `${query.end_date}T23:59:59.999Z`;
-      where.transaction_at.lte = new Date(endDateStr);
-    }
+  if (dateBounds) {
+    where.transaction_at = dateBounds;
   }
 
   return where;
@@ -93,8 +82,8 @@ export async function getCustomerLedger(
     prisma.ledger_entries.findMany({
       where,
       orderBy: [
-        { transaction_at: "asc" },
-        { id: "asc" },
+        { transaction_at: query.order },
+        { id: query.order },
       ],
       skip,
       take: query.limit,
@@ -116,7 +105,7 @@ export async function getCustomerLedger(
 export async function getCustomerLedgerForExport(
   businessId: bigint,
   customerId: bigint,
-  query: Pick<LedgerQuery, "entry_type" | "start_date" | "end_date">
+  query: Pick<LedgerQuery, "entry_type" | "range" | "start_date" | "end_date">
 ) {
   await ensureCustomer(businessId, customerId);
 

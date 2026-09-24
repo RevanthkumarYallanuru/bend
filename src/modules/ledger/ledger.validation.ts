@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { optionalRangeFields, refineCustomRange } from "../../utils/dateRange";
+
 export const ledgerEntryTypeEnum = z.enum([
   "SALE",
   "PAYMENT",
@@ -14,10 +16,13 @@ export const ledgerCustomerParamSchema = z.object({
     .transform((val) => BigInt(val)),
 });
 
-export const ledgerQuerySchema = z.object({
-  start_date: z.string().trim().optional(),
+export const ledgerQuerySchema = z
+  .object({
+  ...optionalRangeFields,
 
-  end_date: z.string().trim().optional(),
+  // Newest first by default (each row carries its own stored
+  // balance_after, so a running balance stays correct in either order).
+  order: z.enum(["asc", "desc"]).default("desc"),
 
   entry_type: ledgerEntryTypeEnum.optional(),
 
@@ -33,7 +38,8 @@ export const ledgerQuerySchema = z.object({
     .positive()
     .max(500, "limit must be 500 or fewer")
     .default(100),
-});
+  })
+  .superRefine(refineCustomRange);
 
 export type LedgerQuery = z.infer<typeof ledgerQuerySchema>;
 

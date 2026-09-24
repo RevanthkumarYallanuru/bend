@@ -22,6 +22,8 @@ import {
   getPayments,
 } from "./payment.service";
 
+import { sendXlsx } from "../../utils/xlsx";
+
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
 
 function serializeBigInt<T>(data: T): T {
@@ -162,6 +164,56 @@ export async function getPaymentByNumberController(
       success: true,
       data: serializeBigInt(payment),
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function exportPaymentsController(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const businessId = req.user!.businessId;
+
+    const query = listPaymentsQuerySchema.parse(req.query);
+
+    const payments = await getPayments(businessId, query);
+
+    const rows = payments.map((payment, index) => ({
+      sl_no: index + 1,
+      payment_number: payment.payment_number,
+      date: payment.payment_at,
+      customer: payment.customers?.english_name ?? "",
+      amount: Number(payment.amount),
+      method: payment.payment_method,
+      reference: payment.reference_number ?? "",
+      notes: payment.notes ?? "",
+      status: payment.ledger_entries.some(
+        (entry) => entry.entry_type === "ADJUSTMENT"
+      )
+        ? "Reversed"
+        : "Active",
+    }));
+
+    await sendXlsx(
+      res,
+      `payments-${Date.now()}.xlsx`,
+      "Payments",
+      [
+        { header: "Sl.No.", key: "sl_no", width: 8 },
+        { header: "Payment No.", key: "payment_number", width: 16 },
+        { header: "Date & Time", key: "date", width: 22, numFmt: "dd-mmm-yyyy hh:mm" },
+        { header: "Customer", key: "customer", width: 28 },
+        { header: "Amount", key: "amount", width: 15, numFmt: "#,##0.00" },
+        { header: "Method", key: "method", width: 14 },
+        { header: "Reference", key: "reference", width: 20 },
+        { header: "Notes", key: "notes", width: 30 },
+        { header: "Status", key: "status", width: 12 },
+      ],
+      rows
+    );
   } catch (error) {
     next(error);
   }

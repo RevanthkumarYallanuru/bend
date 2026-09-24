@@ -14,6 +14,7 @@ import {
 } from "./supplier.controller";
 import {
   createSupplierBulkPaymentController,
+  exportSupplierPaymentsController,
   listSupplierPaymentsController,
 } from "../supplier-payments/supplierPayment.controller";
 
@@ -31,6 +32,8 @@ router.get("/balances", getSupplierBalancesController);
 router.get("/:id", getSupplierController);
 
 router.get("/:id/balance", getSupplierBalanceController);
+
+router.get("/:id/payments/export", exportSupplierPaymentsController);
 
 router.get("/:id/payments", listSupplierPaymentsController);
 

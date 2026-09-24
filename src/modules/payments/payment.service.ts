@@ -1,6 +1,7 @@
 import { Decimal } from "@prisma/client/runtime/client";
 
 import { prisma } from "../../config/database";
+import { rangeToBounds } from "../../utils/dateRange";
 import type { Prisma } from "../../../generated/prisma/client";
 
 import type {
@@ -506,22 +507,10 @@ export async function getPayments(
     where.payment_method = query.payment_method;
   }
 
-  if (query.start_date || query.end_date) {
-    where.payment_at = {};
+  const dateBounds = rangeToBounds(query);
 
-    if (query.start_date) {
-      const startDateStr = query.start_date.includes("T")
-        ? query.start_date
-        : `${query.start_date}T00:00:00.000Z`;
-      where.payment_at.gte = new Date(startDateStr);
-    }
-
-    if (query.end_date) {
-      const endDateStr = query.end_date.includes("T")
-        ? query.end_date
-        : `${query.end_date}T23:59:59.999Z`;
-      where.payment_at.lte = new Date(endDateStr);
-    }
+  if (dateBounds) {
+    where.payment_at = dateBounds;
   }
 
   if (query.search) {
@@ -570,9 +559,7 @@ export async function getPayments(
   return prisma.payments.findMany({
     where,
     include: paymentInclude,
-    orderBy: {
-      payment_at: "desc",
-    },
+    orderBy: [{ payment_at: "desc" }, { id: "desc" }],
   });
 }
 
@@ -623,8 +610,6 @@ export async function getCustomerPayments(
       customer_id: customerId,
     },
     include: paymentInclude,
-    orderBy: {
-      payment_at: "desc",
-    },
+    orderBy: [{ payment_at: "desc" }, { id: "desc" }],
   });
 }

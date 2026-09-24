@@ -226,9 +226,16 @@ export async function exportBillsController(
 
     const range = rangeQuerySchema.parse(req.query);
 
+    const customerId =
+      typeof req.query.customer_id === "string" &&
+      /^\d+$/.test(req.query.customer_id)
+        ? req.query.customer_id
+        : undefined;
+
     const { start, end, bills } = await getBillsForExport(
       businessId,
-      range
+      range,
+      customerId
     );
 
     const rows = bills.map((bill, index) => ({
