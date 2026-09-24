@@ -1,4 +1,5 @@
 import axios from "axios";
+import { prisma } from "../config/database";
 
 const API_URL = "http://localhost:5000/api";
 
@@ -429,6 +430,26 @@ async function runCustomerTests() {
       }
     }
   );
+
+  /*
+   * CLEANUP
+   *
+   * Every other test file deletes what it creates; this one didn't,
+   * which left an orphaned "Automated Test Customer" row in the real
+   * database after every run. Each test in this file already catches
+   * its own errors via runTest, so nothing above can throw past this
+   * point — a plain cleanup call here is as reliable as a finally
+   * block would be.
+   */
+  if (testCustomerId) {
+    try {
+      await prisma.customers.deleteMany({
+        where: { id: BigInt(testCustomerId) },
+      });
+    } catch (cleanupErr) {
+      console.error("Cleanup warning:", cleanupErr);
+    }
+  }
 
   /*
    * PRINT REPORT
