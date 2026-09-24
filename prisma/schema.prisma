@@ -124,6 +124,7 @@ model bills {
   customers                 customers?            @relation(fields: [customer_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_bills_customer")
   ledger_entries            ledger_entries[]
   payment_allocations       payment_allocations[]
+  stock_movements           stock_movements[]
 
   @@unique([business_id, bill_number], map: "uq_bills_business_bill_number")
   @@index([customer_id], map: "idx_bills_customer")
@@ -173,6 +174,7 @@ model businesses {
   ledger_entries    ledger_entries[]
   payables          payables[]
   payments          payments[]
+  stock_movements   stock_movements[]
   suppliers         suppliers[]
   users             users[]
 }
@@ -241,27 +243,28 @@ model delivery_agents {
 /// this exists purely to capture the transaction and (via the linked
 /// payable) what's still owed to the supplier for it.
 model imports {
-  id          BigInt     @id @default(autoincrement())
-  business_id BigInt
-  supplier_id BigInt
-  item_id     BigInt
-  quantity    Decimal    @db.Decimal(14, 3)
-  unit        String     @db.VarChar(30)
-  amount      Decimal    @db.Decimal(14, 2)
+  id              BigInt            @id @default(autoincrement())
+  business_id     BigInt
+  supplier_id     BigInt
+  item_id         BigInt
+  quantity        Decimal           @db.Decimal(14, 3)
+  unit            String            @db.VarChar(30)
+  amount          Decimal           @db.Decimal(14, 2)
   /// What was actually paid at purchase time — a fixed historical fact,
   /// never updated afterward. Any further payment happens through the
   /// linked payable (payables.import_id), not by revisiting this row.
-  paid_amount Decimal    @default(0) @db.Decimal(14, 2)
-  import_date DateTime   @default(now()) @db.Timestamptz(6)
-  notes       String?
-  created_by  BigInt
-  created_at  DateTime   @default(now()) @db.Timestamptz(6)
-  updated_at  DateTime   @default(now()) @db.Timestamptz(6)
-  businesses  businesses @relation(fields: [business_id], references: [id], onUpdate: NoAction, map: "fk_imports_business")
-  suppliers   suppliers  @relation(fields: [supplier_id], references: [id], onUpdate: NoAction, map: "fk_imports_supplier")
-  items       items      @relation(fields: [item_id], references: [id], onUpdate: NoAction, map: "fk_imports_item")
-  users       users      @relation(fields: [created_by], references: [id], onUpdate: NoAction, map: "fk_imports_created_by")
-  payables    payables?
+  paid_amount     Decimal           @default(0) @db.Decimal(14, 2)
+  import_date     DateTime          @default(now()) @db.Timestamptz(6)
+  notes           String?
+  created_by      BigInt
+  created_at      DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime          @default(now()) @db.Timestamptz(6)
+  businesses      businesses        @relation(fields: [business_id], references: [id], onUpdate: NoAction, map: "fk_imports_business")
+  suppliers       suppliers         @relation(fields: [supplier_id], references: [id], onUpdate: NoAction, map: "fk_imports_supplier")
+  items           items             @relation(fields: [item_id], references: [id], onUpdate: NoAction, map: "fk_imports_item")
+  users           users             @relation(fields: [created_by], references: [id], onUpdate: NoAction, map: "fk_imports_created_by")
+  payables        payables?
+  stock_movements stock_movements[]
 
   @@index([business_id], map: "idx_imports_business")
   @@index([business_id, supplier_id], map: "idx_imports_supplier")
@@ -294,21 +297,22 @@ model item_units {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model items {
-  id           BigInt       @id @default(autoincrement())
-  business_id  BigInt
-  category_id  BigInt?
-  item_code    String       @db.VarChar(30)
-  english_name String       @db.VarChar(150)
-  telugu_name  String?      @db.VarChar(150)
-  description  String?
-  is_active    Boolean      @default(true)
-  created_at   DateTime     @default(now()) @db.Timestamptz(6)
-  updated_at   DateTime     @default(now()) @db.Timestamptz(6)
-  bill_items   bill_items[]
-  item_units   item_units[]
-  imports      imports[]
-  businesses   businesses   @relation(fields: [business_id], references: [id], onUpdate: NoAction, map: "fk_items_business")
-  categories   categories?  @relation(fields: [category_id], references: [id], onUpdate: NoAction, map: "fk_items_category")
+  id              BigInt            @id @default(autoincrement())
+  business_id     BigInt
+  category_id     BigInt?
+  item_code       String            @db.VarChar(30)
+  english_name    String            @db.VarChar(150)
+  telugu_name     String?           @db.VarChar(150)
+  description     String?
+  is_active       Boolean           @default(true)
+  created_at      DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime          @default(now()) @db.Timestamptz(6)
+  bill_items      bill_items[]
+  item_units      item_units[]
+  imports         imports[]
+  stock_movements stock_movements[]
+  businesses      businesses        @relation(fields: [business_id], references: [id], onUpdate: NoAction, map: "fk_items_business")
+  categories      categories?       @relation(fields: [category_id], references: [id], onUpdate: NoAction, map: "fk_items_category")
 
   @@unique([business_id, item_code], map: "uq_items_business_code")
   @@unique([business_id, english_name], map: "uq_items_business_name")
@@ -437,6 +441,39 @@ model payments {
   @@index([business_id, payment_at], map: "idx_payments_payment_at")
 }
 
+/// One row per stock-affecting event for an item — the inventory mirror
+/// of `ledger_entries` (same shape: running `balance_after`, a
+/// compensating ADJUSTMENT row on bill cancellation rather than
+/// mutating history). IMPORT rows carry quantity_in, SALE rows carry
+/// quantity_out, ADJUSTMENT rows (cancellation reversals) carry
+/// quantity_in again. Quantities are raw numbers in whatever unit the
+/// source transaction used — no unit-conversion system exists, so an
+/// item must be imported/billed in one consistent unit for its totals
+/// to be meaningful.
+model stock_movements {
+  id             BigInt              @id @default(autoincrement())
+  business_id    BigInt
+  item_id        BigInt
+  movement_type  stock_movement_type
+  bill_id        BigInt?
+  import_id      BigInt?
+  transaction_at DateTime            @default(now()) @db.Timestamptz(6)
+  quantity_in    Decimal             @default(0) @db.Decimal(14, 3)
+  quantity_out   Decimal             @default(0) @db.Decimal(14, 3)
+  balance_after  Decimal             @db.Decimal(14, 3)
+  description    String?
+  created_by     BigInt
+  created_at     DateTime            @default(now()) @db.Timestamptz(6)
+  businesses     businesses          @relation(fields: [business_id], references: [id], onUpdate: NoAction, map: "fk_stock_movements_business")
+  items          items               @relation(fields: [item_id], references: [id], onUpdate: NoAction, map: "fk_stock_movements_item")
+  bills          bills?              @relation(fields: [bill_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_stock_movements_bill")
+  imports        imports?            @relation(fields: [import_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_stock_movements_import")
+  users          users               @relation(fields: [created_by], references: [id], onUpdate: NoAction, map: "fk_stock_movements_created_by")
+
+  @@index([business_id, item_id], map: "idx_stock_movements_business_item")
+  @@index([item_id, transaction_at], map: "idx_stock_movements_item_date")
+}
+
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model suppliers {
   id              BigInt     @id @default(autoincrement())
@@ -478,6 +515,7 @@ model users {
   payments         payments[]
   payables         payables[]
   payable_payments payable_payments[]
+  stock_movements  stock_movements[]
   businesses       businesses         @relation(fields: [business_id], references: [id], onUpdate: NoAction, map: "fk_users_business")
 
   @@unique([business_id, username], map: "uq_users_business_username")
@@ -529,6 +567,12 @@ enum payable_status {
   PENDING
   PARTIALLY_PAID
   PAID
+}
+
+enum stock_movement_type {
+  IMPORT
+  SALE
+  ADJUSTMENT
 }
 
 enum user_role {

@@ -1,6 +1,7 @@
 import { Decimal } from "@prisma/client/runtime/client";
 
 import { prisma } from "../../config/database";
+import { recordStockMovement } from "../inventory/inventory.service";
 import type { Prisma } from "../../../generated/prisma/client";
 
 import type {
@@ -460,6 +461,25 @@ export async function createBill(
       include: billInclude,
     });
 
+    // Stock out — one movement per line, only for a COMPLETED bill
+    // (the only status this function ever creates today; guarded
+    // explicitly since nothing here should reduce stock for a bill
+    // that isn't actually completed).
+    if (bill.status === "COMPLETED") {
+      for (const line of preparedItems) {
+        await recordStockMovement(tx, {
+          businessId,
+          itemId: line.item_id,
+          movementType: "SALE",
+          quantityOut: line.quantity,
+          billId: bill.id,
+          transactionAt: transactionAt,
+          description: `Bill ${billNumber}`,
+          userId,
+        });
+      }
+    }
+
     if (data.bill_type === "CUSTOMER" && customer) {
       let runningBalance = previousBalance;
 
@@ -697,6 +717,7 @@ export async function cancelBill(
       },
       include: {
         payment_allocations: true,
+        bill_items: true,
       },
     });
 
@@ -748,6 +769,26 @@ export async function cancelBill(
             ? `Reversal: bill ${bill.bill_number} cancelled — Reason: ${reason}`
             : `Reversal: bill ${bill.bill_number} cancelled`,
         },
+      });
+    }
+
+    // Restore stock for every line on this bill — applies to walk-in
+    // bills too (they reduce stock on creation the same as customer
+    // bills), so this isn't gated on bill.customer_id like the ledger
+    // reversal above. Same "compensating entry, never mutate history"
+    // discipline as the ledger reversal.
+    for (const line of bill.bill_items) {
+      await recordStockMovement(tx, {
+        businessId,
+        itemId: line.item_id,
+        movementType: "ADJUSTMENT",
+        quantityIn: line.quantity,
+        billId: bill.id,
+        transactionAt: cancelledAt,
+        description: reason
+          ? `Reversal: bill ${bill.bill_number} cancelled — Reason: ${reason}`
+          : `Reversal: bill ${bill.bill_number} cancelled`,
+        userId,
       });
     }
 

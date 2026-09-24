@@ -15,6 +15,7 @@ import businessRoutes from "../modules/business/business.routes";
 import payableRoutes from "../modules/payables/payable.routes";
 import supplierRoutes from "../modules/suppliers/supplier.routes";
 import importRoutes from "../modules/imports/import.routes";
+import inventoryRoutes from "../modules/inventory/inventory.routes";
 
 const router = Router();
 
@@ -49,5 +50,6 @@ router.use("/business", businessRoutes);
 router.use("/payables", payableRoutes);
 router.use("/suppliers", supplierRoutes);
 router.use("/imports", importRoutes);
+router.use("/inventory", inventoryRoutes);
 
 export default router;

@@ -143,9 +143,10 @@ async function runImportTests() {
             `Expected linked payable amount 4000, got ${importRecord.payables.total_amount}`
           );
         }
-        if (importRecord.payables.reason !== `Import - ${importRecord.items.english_name}`) {
+        const expectedReason = `Import - ${importRecord.items.english_name} - ${importRecord.quantity} ${importRecord.unit}`;
+        if (importRecord.payables.reason !== expectedReason) {
           throw new Error(
-            `Expected reason "Import - ${importRecord.items.english_name}", got "${importRecord.payables.reason}"`
+            `Expected reason "${expectedReason}", got "${importRecord.payables.reason}"`
           );
         }
         if (importRecord.payables.status !== "PENDING") {

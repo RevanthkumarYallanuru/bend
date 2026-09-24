@@ -2,6 +2,7 @@ import { Decimal } from "@prisma/client/runtime/client";
 
 import { prisma } from "../../config/database";
 import { createPayable } from "../payables/payable.service";
+import { recordStockMovement } from "../inventory/inventory.service";
 import type { Prisma } from "../../../generated/prisma/client";
 
 import type { CreateImportInput, ListImportsQuery } from "./import.validation";
@@ -90,6 +91,19 @@ export async function createImport(
         },
       });
 
+      // Stock in — the entire imported quantity, regardless of how much
+      // of it has been paid for.
+      await recordStockMovement(tx, {
+        businessId,
+        itemId,
+        movementType: "IMPORT",
+        quantityIn: data.quantity,
+        importId: importRecord.id,
+        transactionAt: importDate,
+        description: `Import from ${supplier.name}`,
+        userId,
+      });
+
       // Only the pending remainder becomes a payable — the paid
       // portion was settled outside the payables system (cash at
       // purchase), so it's never double-counted as an "outstanding"
@@ -101,7 +115,7 @@ export async function createImport(
           {
             supplier_id: data.supplier_id,
             total_amount: pending.toNumber(),
-            reason: `Import - ${item.english_name}`,
+            reason: `Import - ${item.english_name} - ${data.quantity} ${data.unit}`,
             payable_date: data.import_date,
           },
           { importId: importRecord.id, client: tx }
