@@ -10,6 +10,9 @@ let token2 = "";
 let business2Id: bigint | null = null;
 let user2Id: bigint | null = null;
 
+let testSupplierId: string | null = null;
+let manualDateSupplierId: string | null = null;
+const createdSupplierIds: bigint[] = [];
 const createdPayableIds: bigint[] = [];
 
 const results: {
@@ -62,6 +65,28 @@ async function runPayableTests() {
       if (!token) throw new Error("JWT token was not returned");
     });
 
+    await runTest("Create supplier fixture", async () => {
+      const res = await axios.post(
+        `${API_URL}/suppliers`,
+        { name: `Ramesh Traders ${Date.now()}` },
+        { headers: authHeaders() }
+      );
+      if (res.status !== 201) throw new Error(`Expected 201, got ${res.status}`);
+      testSupplierId = res.data.data.id;
+      createdSupplierIds.push(BigInt(testSupplierId!));
+    });
+
+    await runTest("Create second supplier fixture", async () => {
+      const res = await axios.post(
+        `${API_URL}/suppliers`,
+        { name: `Manual Date Vendor ${Date.now()}` },
+        { headers: authHeaders() }
+      );
+      if (res.status !== 201) throw new Error(`Expected 201, got ${res.status}`);
+      manualDateSupplierId = res.data.data.id;
+      createdSupplierIds.push(BigInt(manualDateSupplierId!));
+    });
+
     let testPayableId: string | null = null;
     let baselineInsights: {
       count: number;
@@ -82,11 +107,11 @@ async function runPayableTests() {
       baselineInsights = res.data.data;
     });
 
-    await runTest("Create payable", async () => {
+    await runTest("Create payable linked to a supplier", async () => {
       const res = await axios.post(
         `${API_URL}/payables`,
         {
-          payee_name: `Ramesh Traders ${Date.now()}`,
+          supplier_id: testSupplierId,
           total_amount: 15000,
           reason:
             "Purchased 20 bags of ragi, 10 bags of jowar and transportation charges from Kandukur market.",
@@ -102,6 +127,14 @@ async function runPayableTests() {
       testPayableId = payable.id;
       createdPayableIds.push(BigInt(payable.id));
 
+      if (payable.supplier_id !== testSupplierId) {
+        throw new Error(
+          `Expected supplier_id ${testSupplierId}, got ${payable.supplier_id}`
+        );
+      }
+      if (!payable.suppliers || payable.suppliers.id !== testSupplierId) {
+        throw new Error("Expected the linked supplier to be included in the response");
+      }
       if (payable.status !== "PENDING") {
         throw new Error(`Expected status PENDING, got ${payable.status}`);
       }
@@ -133,7 +166,7 @@ async function runPayableTests() {
         const res = await axios.post(
           `${API_URL}/payables`,
           {
-            payee_name: `Manual Date Vendor ${Date.now()}`,
+            supplier_id: manualDateSupplierId,
             total_amount: 500,
             reason: "Diesel for delivery vehicle",
             payable_date: "2026-01-15",
@@ -178,7 +211,7 @@ async function runPayableTests() {
         await axios.post(
           `${API_URL}/payables`,
           {
-            payee_name: "Bad Date Vendor",
+            supplier_id: testSupplierId,
             total_amount: 100,
             reason: "Test",
             payable_date: "15-01-2026",
@@ -195,14 +228,14 @@ async function runPayableTests() {
       }
     });
 
-    await runTest("Reject payable with missing required fields", async () => {
+    await runTest("Reject payable with missing supplier_id or reason", async () => {
       try {
         await axios.post(
           `${API_URL}/payables`,
-          { payee_name: "", total_amount: 100, reason: "" },
+          { total_amount: 100, reason: "" },
           { headers: authHeaders() }
         );
-        throw new Error("API accepted empty name/reason");
+        throw new Error("API accepted a missing supplier_id/empty reason");
       } catch (error: any) {
         if (error.response?.status !== 400) {
           throw new Error(
@@ -212,11 +245,28 @@ async function runPayableTests() {
       }
     });
 
+    await runTest("Reject payable for a non-existent supplier", async () => {
+      try {
+        await axios.post(
+          `${API_URL}/payables`,
+          { supplier_id: "999999999", total_amount: 100, reason: "Test" },
+          { headers: authHeaders() }
+        );
+        throw new Error("API accepted a non-existent supplier_id");
+      } catch (error: any) {
+        if (error.response?.status !== 404) {
+          throw new Error(
+            `Expected 404, got ${error.response?.status ?? error.message}`
+          );
+        }
+      }
+    });
+
     await runTest("Reject payable with non-positive amount", async () => {
       try {
         await axios.post(
           `${API_URL}/payables`,
-          { payee_name: "ABC Transport", total_amount: 0, reason: "Test" },
+          { supplier_id: testSupplierId, total_amount: 0, reason: "Test" },
           { headers: authHeaders() }
         );
         throw new Error("API accepted a zero amount");
@@ -251,6 +301,21 @@ async function runPayableTests() {
         (p) => p.id === testPayableId
       );
       if (!found) throw new Error("Created payable not found in list");
+    });
+
+    await runTest("List filters by supplier_id", async () => {
+      const res = await axios.get(`${API_URL}/payables`, {
+        params: { supplier_id: testSupplierId },
+        headers: authHeaders(),
+      });
+
+      const rows = res.data.data as any[];
+      if (rows.length === 0) {
+        throw new Error("Expected at least one payable for this supplier");
+      }
+      if (rows.some((p) => p.supplier_id !== testSupplierId)) {
+        throw new Error("supplier_id filter leaked another supplier's payable");
+      }
     });
 
     await runTest(
@@ -586,6 +651,20 @@ async function runPayableTests() {
       if (insightsRes.data.data.count !== 0) {
         throw new Error("Business 2 insights leaked Business 1 data");
       }
+
+      // A business-2 payable can never reference a business-1 supplier.
+      try {
+        await axios.post(
+          `${API_URL}/payables`,
+          { supplier_id: testSupplierId, total_amount: 100, reason: "Test" },
+          { headers: authHeaders(token2) }
+        );
+        throw new Error("Business 2 was able to create a payable against a Business 1 supplier");
+      } catch (error: any) {
+        if (error.response?.status !== 404) {
+          throw new Error(`Expected HTTP 404, got ${error.response?.status}`);
+        }
+      }
     });
   } finally {
     try {
@@ -594,6 +673,10 @@ async function runPayableTests() {
           where: { payable_id: payableId },
         });
         await prisma.payables.deleteMany({ where: { id: payableId } });
+      }
+
+      for (const supplierId of createdSupplierIds) {
+        await prisma.suppliers.deleteMany({ where: { id: supplierId } });
       }
 
       if (business2Id) {

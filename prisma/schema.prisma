@@ -168,10 +168,12 @@ model businesses {
   categories        categories[]
   customers         customers[]
   delivery_agents   delivery_agents[]
+  imports           imports[]
   items             items[]
   ledger_entries    ledger_entries[]
   payables          payables[]
   payments          payments[]
+  suppliers         suppliers[]
   users             users[]
 }
 
@@ -234,6 +236,37 @@ model delivery_agents {
   @@index([business_id], map: "idx_delivery_agents_business")
 }
 
+/// Lightweight purchase record — supplier + item + quantity + amount +
+/// what was actually paid at purchase time. No stock-on-hand tracking:
+/// this exists purely to capture the transaction and (via the linked
+/// payable) what's still owed to the supplier for it.
+model imports {
+  id          BigInt     @id @default(autoincrement())
+  business_id BigInt
+  supplier_id BigInt
+  item_id     BigInt
+  quantity    Decimal    @db.Decimal(14, 3)
+  unit        String     @db.VarChar(30)
+  amount      Decimal    @db.Decimal(14, 2)
+  /// What was actually paid at purchase time — a fixed historical fact,
+  /// never updated afterward. Any further payment happens through the
+  /// linked payable (payables.import_id), not by revisiting this row.
+  paid_amount Decimal    @default(0) @db.Decimal(14, 2)
+  import_date DateTime   @default(now()) @db.Timestamptz(6)
+  notes       String?
+  created_by  BigInt
+  created_at  DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime   @default(now()) @db.Timestamptz(6)
+  businesses  businesses @relation(fields: [business_id], references: [id], onUpdate: NoAction, map: "fk_imports_business")
+  suppliers   suppliers  @relation(fields: [supplier_id], references: [id], onUpdate: NoAction, map: "fk_imports_supplier")
+  items       items      @relation(fields: [item_id], references: [id], onUpdate: NoAction, map: "fk_imports_item")
+  users       users      @relation(fields: [created_by], references: [id], onUpdate: NoAction, map: "fk_imports_created_by")
+  payables    payables?
+
+  @@index([business_id], map: "idx_imports_business")
+  @@index([business_id, supplier_id], map: "idx_imports_supplier")
+}
+
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model item_units {
   id                 BigInt       @id @default(autoincrement())
@@ -273,6 +306,7 @@ model items {
   updated_at   DateTime     @default(now()) @db.Timestamptz(6)
   bill_items   bill_items[]
   item_units   item_units[]
+  imports      imports[]
   businesses   businesses   @relation(fields: [business_id], references: [id], onUpdate: NoAction, map: "fk_items_business")
   categories   categories?  @relation(fields: [category_id], references: [id], onUpdate: NoAction, map: "fk_items_category")
 
@@ -312,7 +346,11 @@ model ledger_entries {
 model payables {
   id               BigInt             @id @default(autoincrement())
   business_id      BigInt
-  payee_name       String             @db.VarChar(150)
+  supplier_id      BigInt
+  /// Set only when this payable was auto-created for an import's
+  /// pending balance (see imports.paid_amount) — null for every
+  /// ordinary/manually-created payable, including opening balances.
+  import_id        BigInt?            @unique
   total_amount     Decimal            @db.Decimal(14, 2)
   /// Running total of payable_payments — denormalized the same way
   /// bills.amount_paid is, for fast list-page reads without summing
@@ -331,12 +369,15 @@ model payables {
   created_at       DateTime           @default(now()) @db.Timestamptz(6)
   updated_at       DateTime           @default(now()) @db.Timestamptz(6)
   businesses       businesses         @relation(fields: [business_id], references: [id], onUpdate: NoAction, map: "fk_payables_business")
+  suppliers        suppliers          @relation(fields: [supplier_id], references: [id], onUpdate: NoAction, map: "fk_payables_supplier")
+  imports          imports?           @relation(fields: [import_id], references: [id], onUpdate: NoAction, map: "fk_payables_import")
   users            users              @relation(fields: [created_by], references: [id], onUpdate: NoAction, map: "fk_payables_created_by")
   payable_payments payable_payments[]
 
   @@index([business_id], map: "idx_payables_business")
   @@index([business_id, status], map: "idx_payables_status")
   @@index([business_id, payable_date], map: "idx_payables_payable_date")
+  @@index([business_id, supplier_id], map: "idx_payables_supplier")
 }
 
 /// One row per partial/full payment made against a payable — an
@@ -397,6 +438,29 @@ model payments {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model suppliers {
+  id              BigInt     @id @default(autoincrement())
+  business_id     BigInt
+  name            String     @db.VarChar(150)
+  telugu_name     String?    @db.VarChar(150)
+  phone           String?    @db.VarChar(20)
+  alternate_phone String?    @db.VarChar(20)
+  organization    String?    @db.VarChar(150)
+  address         String?
+  notes           String?
+  is_active       Boolean    @default(true)
+  created_at      DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime   @default(now()) @db.Timestamptz(6)
+  businesses      businesses @relation(fields: [business_id], references: [id], onUpdate: NoAction, map: "fk_suppliers_business")
+  payables        payables[]
+  imports         imports[]
+
+  @@index([business_id], map: "idx_suppliers_business")
+  @@index([business_id, name], map: "idx_suppliers_name")
+  @@index([business_id, phone], map: "idx_suppliers_phone")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model users {
   id               BigInt             @id @default(autoincrement())
   business_id      BigInt
@@ -410,6 +474,7 @@ model users {
   updated_at       DateTime           @default(now()) @db.Timestamptz(6)
   audit_logs       audit_logs[]
   bills            bills[]
+  imports          imports[]
   payments         payments[]
   payables         payables[]
   payable_payments payable_payments[]

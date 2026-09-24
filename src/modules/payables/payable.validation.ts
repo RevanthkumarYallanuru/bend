@@ -12,11 +12,9 @@ const paymentMethodEnum = z.enum([
 ]);
 
 export const createPayableSchema = z.object({
-  payee_name: z
+  supplier_id: z
     .string()
-    .trim()
-    .min(1, "Name is required")
-    .max(150, "Name must be at most 150 characters"),
+    .regex(/^\d+$/, "A supplier must be selected"),
 
   total_amount: z.coerce
     .number()
@@ -49,6 +47,10 @@ export const payableIdSchema = z.object({
 export const listPayablesQuerySchema = z.object({
   status: z.enum(["PENDING", "PARTIALLY_PAID", "PAID"]).optional(),
   search: z.string().trim().optional(),
+  supplier_id: z
+    .string()
+    .regex(/^\d+$/)
+    .optional(),
 });
 
 export const recordPayablePaymentSchema = z.object({

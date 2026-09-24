@@ -30,6 +30,7 @@ export class PayableError extends Error {
 type TransactionClient = Prisma.TransactionClient;
 
 const payableInclude = {
+  suppliers: true,
   payable_payments: {
     orderBy: {
       payment_date: "asc" as const,
@@ -45,21 +46,43 @@ function decimalFrom(value: number | string | Decimal): Decimal {
   return new Decimal(value.toString());
 }
 
+/**
+ * `options.client` lets the Imports module run this inside its own
+ * `$transaction` (atomic with the import row) instead of on the default
+ * `prisma` client — same function, same validation, either way.
+ * `options.importId` is internal-only (never exposed via the public Zod
+ * schema): set only when this payable is being auto-created for an
+ * import's pending balance.
+ */
 export async function createPayable(
   businessId: bigint,
   userId: bigint,
-  data: CreatePayableInput
+  data: CreatePayableInput,
+  options?: { importId?: bigint; client?: TransactionClient }
 ) {
+  const client = options?.client ?? prisma;
+
+  const supplierId = BigInt(data.supplier_id);
+
+  const supplier = await client.suppliers.findFirst({
+    where: { id: supplierId, business_id: businessId },
+  });
+
+  if (!supplier) {
+    throw new PayableError("Supplier not found", 404);
+  }
+
   const totalAmount = roundMoney(decimalFrom(data.total_amount));
 
   const payableDate = data.payable_date
     ? new Date(`${data.payable_date}T00:00:00.000Z`)
     : new Date();
 
-  return prisma.payables.create({
+  return client.payables.create({
     data: {
       business_id: businessId,
-      payee_name: data.payee_name,
+      supplier_id: supplierId,
+      import_id: options?.importId ?? null,
       total_amount: totalAmount,
       amount_paid: new Decimal(0),
       reason: data.reason,
@@ -83,12 +106,26 @@ export async function getPayables(
     where.status = query.status;
   }
 
+  if (query.supplier_id) {
+    where.supplier_id = BigInt(query.supplier_id);
+  }
+
   if (query.search) {
     where.OR = [
       {
-        payee_name: {
-          contains: query.search,
-          mode: "insensitive",
+        suppliers: {
+          name: {
+            contains: query.search,
+            mode: "insensitive",
+          },
+        },
+      },
+      {
+        suppliers: {
+          telugu_name: {
+            contains: query.search,
+            mode: "insensitive",
+          },
         },
       },
       {

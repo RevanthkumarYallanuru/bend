@@ -13,6 +13,8 @@ import deliveryRoutes from "../modules/deliveries/delivery.routes";
 import reportRoutes from "../modules/reports/report.routes";
 import businessRoutes from "../modules/business/business.routes";
 import payableRoutes from "../modules/payables/payable.routes";
+import supplierRoutes from "../modules/suppliers/supplier.routes";
+import importRoutes from "../modules/imports/import.routes";
 
 const router = Router();
 
@@ -45,5 +47,7 @@ router.use("/deliveries", deliveryRoutes);
 router.use("/reports", reportRoutes);
 router.use("/business", businessRoutes);
 router.use("/payables", payableRoutes);
+router.use("/suppliers", supplierRoutes);
+router.use("/imports", importRoutes);
 
 export default router;

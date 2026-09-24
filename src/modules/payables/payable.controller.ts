@@ -66,7 +66,7 @@ export async function createPayableController(
       data: serializeBigInt(payable),
     });
   } catch (error) {
-    next(error);
+    handlePayableError(error, res, next);
   }
 }
 
