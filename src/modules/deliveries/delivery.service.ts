@@ -33,7 +33,9 @@ const deliveryInclude = {
  */
 const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   GENERATED: ["SENT"],
-  SENT: ["REACHED"],
+  // New deliveries start as SENT (see assignBillDelivery); from there the
+  // shop can mark it Reached, Balance Due, or Cleared directly.
+  SENT: ["REACHED", "BALANCE", "CLEARED"],
   REACHED: ["BALANCE", "CLEARED"],
   BALANCE: ["CLEARED"],
   CLEARED: [],
@@ -202,6 +204,9 @@ export async function assignBillDelivery(
       // this just mirrors that here defensively.
       temp_agent_name: agentId ? null : data.temp_agent_name ?? null,
       notes: data.notes ?? null,
+      // A bill going out for delivery starts as already Sent.
+      status: "SENT",
+      sent_at: new Date(),
     },
     include: deliveryInclude,
   });
@@ -290,6 +295,9 @@ export async function updateDeliveryStatus(
     updated_at: now,
     ...(newStatus === "SENT" && { sent_at: now }),
     ...(newStatus === "REACHED" && { reached_at: now }),
+    // Jumping straight from Sent to Balance Due / Cleared implies it reached.
+    ...((newStatus === "BALANCE" || newStatus === "CLEARED") &&
+      !delivery.reached_at && { reached_at: now }),
     ...(newStatus === "CLEARED" && { cleared_at: now }),
     ...(notes !== undefined && { notes }),
   };

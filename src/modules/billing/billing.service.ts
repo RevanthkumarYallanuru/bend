@@ -234,7 +234,10 @@ export async function createBill(
       : new Date();
 
     const billDiscount = decimalFrom(data.discount);
-    const amountPaid = decimalFrom(data.amount_paid);
+    // A walk-in bill is a complete sale paid in full at the counter, so
+    // its paid amount is always the grand total (set below once the total
+    // is known) — whatever the client sent for it is ignored.
+    const requestedAmountPaid = decimalFrom(data.amount_paid);
 
     let customer: Awaited<
       ReturnType<typeof tx.customers.findFirst>
@@ -402,6 +405,9 @@ export async function createBill(
       );
     }
 
+    const amountPaid =
+      data.bill_type === "WALK_IN" ? grandTotal : requestedAmountPaid;
+
     // A customer may pay more than this bill's own total to also pay
     // down what they already owed — the excess reduces their previous
     // balance instead of being rejected. There's no previous balance
@@ -453,6 +459,8 @@ export async function createBill(
         amount_paid: amountPaid,
         current_bill_balance: currentBillBalance,
         overall_balance: overallBalance,
+        payment_method:
+          data.bill_type === "WALK_IN" ? data.payment_method ?? "CASH" : null,
         notes: data.notes ?? null,
         created_by: userId,
         bill_items: {

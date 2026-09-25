@@ -109,6 +109,57 @@ export async function getSalesReport(
   };
 }
 
+/**
+ * Walk-in bills are paid in full at the counter and have no customer, so
+ * they never get a `payments` row (that table is per-customer receipts).
+ * Their collected amount lives on the bill itself — this is the one place
+ * that turns it into "payments received" so every payments figure
+ * (dashboard, payments report) counts walk-in sales as money in. Only
+ * COMPLETED bills count, so cancelling one takes its amount back out.
+ */
+async function getWalkInCollections(
+  businessId: bigint,
+  start: Date,
+  end: Date
+) {
+  const where = {
+    business_id: businessId,
+    bill_type: "WALK_IN" as const,
+    status: "COMPLETED" as const,
+    transaction_at: { gte: start, lte: end },
+  };
+
+  const [total, byMethod, daily] = await Promise.all([
+    prisma.bills.aggregate({
+      where,
+      _count: { _all: true },
+      _sum: { amount_paid: true },
+    }),
+    prisma.bills.groupBy({
+      by: ["payment_method"],
+      where,
+      _count: { _all: true },
+      _sum: { amount_paid: true },
+    }),
+    prisma.$queryRaw<
+      { payment_date: Date; total_payments: bigint; total_amount: string }[]
+    >`
+      SELECT transaction_at::date AS payment_date,
+             COUNT(*) AS total_payments,
+             COALESCE(SUM(amount_paid), 0)::numeric(14,2) AS total_amount
+      FROM bills
+      WHERE business_id = ${businessId}
+        AND bill_type = 'WALK_IN'
+        AND status = 'COMPLETED'
+        AND transaction_at >= ${start}
+        AND transaction_at <= ${end}
+      GROUP BY transaction_at::date
+    `,
+  ]);
+
+  return { total, byMethod, daily };
+}
+
 export async function getPaymentsReport(
   businessId: bigint,
   range: RangeQuery
@@ -149,26 +200,73 @@ export async function getPaymentsReport(
     ORDER BY payment_date ASC
   `;
 
+  const walkIn = await getWalkInCollections(businessId, start, end);
+
+  const methodTotals = new Map<
+    string,
+    { count: number; total: Decimal }
+  >();
+  const addMethod = (
+    method: string | null,
+    count: number,
+    amount: Decimal
+  ) => {
+    const key = method ?? "CASH";
+    const current = methodTotals.get(key) ?? { count: 0, total: new Decimal(0) };
+    methodTotals.set(key, {
+      count: current.count + count,
+      total: current.total.plus(amount),
+    });
+  };
+  for (const row of byMethod) {
+    addMethod(row.payment_method, row._count._all, decimalFrom(row._sum.amount));
+  }
+  for (const row of walkIn.byMethod) {
+    addMethod(
+      row.payment_method,
+      row._count._all,
+      decimalFrom(row._sum.amount_paid)
+    );
+  }
+
+  const dailyTotals = new Map<string, { count: number; total: Decimal }>();
+  const addDaily = (date: Date, count: number, amount: Decimal) => {
+    const key = date.toISOString().slice(0, 10);
+    const current = dailyTotals.get(key) ?? { count: 0, total: new Decimal(0) };
+    dailyTotals.set(key, {
+      count: current.count + count,
+      total: current.total.plus(amount),
+    });
+  };
+  for (const row of daily) {
+    addDaily(row.payment_date, Number(row.total_payments), decimalFrom(row.total_amount));
+  }
+  for (const row of walkIn.daily) {
+    addDaily(row.payment_date, Number(row.total_payments), decimalFrom(row.total_amount));
+  }
+
   return {
     range: { start: start.toISOString(), end: end.toISOString() },
     summary: {
-      total_payments: aggregate._count._all,
+      total_payments: aggregate._count._all + walkIn.total._count._all,
       total_amount: roundMoney(
-        decimalFrom(aggregate._sum.amount)
+        decimalFrom(aggregate._sum.amount).plus(
+          decimalFrom(walkIn.total._sum.amount_paid)
+        )
       ).toString(),
     },
-    by_method: byMethod.map((row) => ({
-      payment_method: row.payment_method,
-      count: row._count._all,
-      total_amount: roundMoney(
-        decimalFrom(row._sum.amount)
-      ).toString(),
+    by_method: [...methodTotals.entries()].map(([method, row]) => ({
+      payment_method: method,
+      count: row.count,
+      total_amount: roundMoney(row.total).toString(),
     })),
-    daily: daily.map((row) => ({
-      date: row.payment_date,
-      total_payments: Number(row.total_payments),
-      total_amount: row.total_amount,
-    })),
+    daily: [...dailyTotals.entries()]
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([date, row]) => ({
+        date: new Date(`${date}T00:00:00.000Z`),
+        total_payments: row.count,
+        total_amount: roundMoney(row.total).toString(),
+      })),
   };
 }
 
@@ -275,6 +373,7 @@ export async function getDashboard(
     itemsCount,
     recentBills,
     recentPayments,
+    walkInCollections,
   ] = await Promise.all([
     prisma.bills.aggregate({
       where: {
@@ -314,6 +413,7 @@ export async function getDashboard(
       orderBy: [{ payment_at: "desc" }, { id: "desc" }],
       take: 5,
     }),
+    getWalkInCollections(businessId, start, end),
   ]);
 
   return {
@@ -322,9 +422,12 @@ export async function getDashboard(
       sales_total: roundMoney(
         decimalFrom(todaySales._sum.grand_total)
       ).toString(),
-      payments_count: todayPayments._count._all,
+      payments_count:
+        todayPayments._count._all + walkInCollections.total._count._all,
       payments_total: roundMoney(
-        decimalFrom(todayPayments._sum.amount)
+        decimalFrom(todayPayments._sum.amount).plus(
+          decimalFrom(walkInCollections.total._sum.amount_paid)
+        )
       ).toString(),
     },
     outstanding_total: outstandingRows[0]?.total ?? "0.00",

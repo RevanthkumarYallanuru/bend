@@ -195,10 +195,13 @@ async function runDeliveryTests() {
       if (res.status !== 201) {
         throw new Error(`Expected 201, got ${res.status}`);
       }
-      if (res.data.data.status !== "GENERATED") {
+      if (res.data.data.status !== "SENT") {
         throw new Error(
-          `Expected status GENERATED, got ${res.data.data.status}`
+          `Expected a new delivery to start as SENT, got ${res.data.data.status}`
         );
+      }
+      if (!res.data.data.sent_at) {
+        throw new Error("sent_at was not stamped on creation");
       }
 
       deliveryId = res.data.data.id;
@@ -300,23 +303,23 @@ async function runDeliveryTests() {
 
     await runTest("List deliveries filtered by status", async () => {
       const res = await axios.get(
-        `${API_URL}/deliveries?status=GENERATED`,
+        `${API_URL}/deliveries?status=SENT`,
         { headers: authHeaders() }
       );
       if (
-        res.data.data.some((d: any) => d.status !== "GENERATED")
+        res.data.data.some((d: any) => d.status !== "SENT")
       ) {
         throw new Error("Status filter returned wrong data");
       }
     });
 
     await runTest(
-      "Reject invalid status transition (GENERATED -> REACHED)",
+      "Reject invalid status transition (SENT -> SENT)",
       async () => {
         try {
           await axios.patch(
             `${API_URL}/deliveries/${deliveryId}/status`,
-            { status: "REACHED" },
+            { status: "SENT" },
             { headers: authHeaders() }
           );
           throw new Error("API accepted an invalid transition");
@@ -331,17 +334,8 @@ async function runDeliveryTests() {
     );
 
     await runTest(
-      "Full pipeline GENERATED -> SENT -> REACHED -> CLEARED",
+      "Full pipeline SENT -> REACHED -> CLEARED",
       async () => {
-        const sent = await axios.patch(
-          `${API_URL}/deliveries/${deliveryId}/status`,
-          { status: "SENT" },
-          { headers: authHeaders() }
-        );
-        if (!sent.data.data.sent_at) {
-          throw new Error("sent_at was not stamped");
-        }
-
         const reached = await axios.patch(
           `${API_URL}/deliveries/${deliveryId}/status`,
           { status: "REACHED" },
@@ -420,11 +414,6 @@ async function runDeliveryTests() {
 
         await axios.patch(
           `${API_URL}/deliveries/${id}/status`,
-          { status: "SENT" },
-          { headers: authHeaders() }
-        );
-        await axios.patch(
-          `${API_URL}/deliveries/${id}/status`,
           { status: "REACHED" },
           { headers: authHeaders() }
         );
@@ -445,6 +434,31 @@ async function runDeliveryTests() {
         );
         if (cleared.data.data.status !== "CLEARED") {
           throw new Error("Did not transition BALANCE -> CLEARED");
+        }
+      }
+    );
+
+    await runTest(
+      "A Sent delivery can go straight to Balance Due or Cleared (stamping reached_at)",
+      async () => {
+        for (const target of ["BALANCE", "CLEARED"] as const) {
+          const billId = await createWalkInBill();
+          const delivery = await axios.post(
+            `${API_URL}/deliveries`,
+            { bill_id: billId },
+            { headers: authHeaders() }
+          );
+          const res = await axios.patch(
+            `${API_URL}/deliveries/${delivery.data.data.id}/status`,
+            { status: target },
+            { headers: authHeaders() }
+          );
+          if (res.data.data.status !== target) {
+            throw new Error(`Did not go SENT -> ${target}`);
+          }
+          if (!res.data.data.reached_at) {
+            throw new Error(`reached_at was not stamped going SENT -> ${target}`);
+          }
         }
       }
     );

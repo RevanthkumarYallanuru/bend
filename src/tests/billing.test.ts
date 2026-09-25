@@ -900,13 +900,14 @@ async function runBillingTests() {
     /*
      * 23. REJECT INVALID AMOUNT PAID
      */
-    await runTest("Reject invalid amount paid", async () => {
-      try {
-        await axios.post(
+    await runTest(
+      "Walk-in bill is always paid in full at purchase (client amount ignored)",
+      async () => {
+        const res = await axios.post(
           `${API_URL}/bills`,
           {
             bill_type: "WALK_IN",
-            amount_paid: 99999, // Exceeds grand total
+            amount_paid: 10, // partial — must be ignored for a walk-in
             items: [
               {
                 item_id: testItemId1,
@@ -918,13 +919,23 @@ async function runBillingTests() {
           { headers: authHeaders() }
         );
 
-        throw new Error("API accepted amount_paid exceeding grand total");
-      } catch (error: any) {
-        if (error.response?.status !== 400) {
-          throw new Error(`Expected HTTP 400, got ${error.response?.status}`);
+        if (res.status !== 201) throw new Error(`Expected 201, got ${res.status}`);
+        createdBillIds.push(BigInt(res.data.data.id));
+
+        const bill = res.data.data;
+        if (Number(bill.amount_paid) !== Number(bill.grand_total)) {
+          throw new Error(
+            `Expected amount_paid = grand_total (${bill.grand_total}), got ${bill.amount_paid}`
+          );
+        }
+        if (Number(bill.current_bill_balance) !== 0 || Number(bill.overall_balance) !== 0) {
+          throw new Error("Walk-in bill left a balance");
+        }
+        if (bill.payment_method !== "CASH") {
+          throw new Error(`Expected default payment_method CASH, got ${bill.payment_method}`);
         }
       }
-    });
+    );
 
     /*
      * 24. REJECT CUSTOMER BILL WITHOUT CUSTOMER
