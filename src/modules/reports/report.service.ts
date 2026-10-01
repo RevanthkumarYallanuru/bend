@@ -40,6 +40,7 @@ export async function getBillsForExport(
     bill_status: "COMPLETED",
     start_date: start.toISOString(),
     end_date: end.toISOString(),
+    include_items: false,
     ...(customerId ? { customer_id: customerId } : {}),
   });
 

@@ -490,10 +490,12 @@ model payments {
 /// compensating ADJUSTMENT row on bill cancellation rather than
 /// mutating history). IMPORT rows carry quantity_in, SALE rows carry
 /// quantity_out, ADJUSTMENT rows (cancellation reversals) carry
-/// quantity_in again. Quantities are raw numbers in whatever unit the
-/// source transaction used — no unit-conversion system exists, so an
-/// item must be imported/billed in one consistent unit for its totals
-/// to be meaningful.
+/// quantity_in again, CORRECTION rows (manual admin stock correction —
+/// see stock_movement_type) carry quantity_in or quantity_out
+/// depending on the direction. Quantities are raw numbers in whatever
+/// unit the source transaction used — no unit-conversion system
+/// exists, so an item must be imported/billed in one consistent unit
+/// for its totals to be meaningful.
 model stock_movements {
   id             BigInt              @id @default(autoincrement())
   business_id    BigInt
@@ -619,6 +621,13 @@ enum stock_movement_type {
   IMPORT
   SALE
   ADJUSTMENT
+  /// A manual stock correction (admin-entered — stock received from
+  /// elsewhere, a physical recount, wastage, etc.), not tied to any
+  /// bill or import. Deliberately its own type rather than reusing
+  /// ADJUSTMENT: ADJUSTMENT rows are specifically cancellation
+  /// reversals and are netted out of total_sold, which a plain stock
+  /// correction must NOT affect — it only moves remaining_stock.
+  CORRECTION
 }
 
 enum user_role {

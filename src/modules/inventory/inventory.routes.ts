@@ -6,6 +6,7 @@ import {
   exportStockTallyController,
   getItemStockMovementsController,
   getStockTallyController,
+  setItemStockController,
 } from "./inventory.controller";
 
 const router = Router();
@@ -17,5 +18,7 @@ router.get("/tally", getStockTallyController);
 router.get("/tally/export", exportStockTallyController);
 
 router.get("/items/:id/movements", getItemStockMovementsController);
+
+router.post("/items/:id/stock", setItemStockController);
 
 export default router;

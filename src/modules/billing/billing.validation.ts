@@ -141,6 +141,15 @@ export const listBillsQuerySchema = z
 
   search: z.string().trim().optional(),
 
+  // Opt-in only: the plain bills list/export never need each bill's
+  // line items, but the customer profile's Bills panel shows an item
+  // summary per row and does — see getBills's own comment on why this
+  // isn't included by default.
+  include_items: z
+    .string()
+    .optional()
+    .transform((val) => val === "true"),
+
   ...optionalRangeFields,
   })
   .superRefine(refineCustomRange);

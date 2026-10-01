@@ -58,7 +58,7 @@ export async function recordStockMovement(
   params: {
     businessId: bigint;
     itemId: bigint;
-    movementType: "IMPORT" | "SALE" | "ADJUSTMENT";
+    movementType: "IMPORT" | "SALE" | "ADJUSTMENT" | "CORRECTION";
     quantityIn?: Decimal | number | string;
     quantityOut?: Decimal | number | string;
     billId?: bigint;
@@ -159,7 +159,18 @@ export async function getStockTally(businessId: bigint) {
     last_import_qty: row.last_import_qty,
     total_imported: row.total_imported,
     total_sold: row.total_sold,
-    remaining_stock: row.remaining_stock,
+    // Never shown negative — a handful of items have more historical
+    // sales than recorded imports (sales predate when import tracking
+    // started), which is a known, accepted gap, not something a
+    // negative "remaining stock" should surface to the person running
+    // the shop. total_imported/total_sold above stay the real,
+    // unclamped figures; only this display value floors at 0. The
+    // underlying stock_movements math is untouched — see
+    // getItemStockBalance/recordStockMovement, which keep computing
+    // the real running balance so the ledger's own
+    // total_imported-total_sold=remaining_stock identity still holds
+    // internally.
+    remaining_stock: roundQty(Decimal.max(0, decimalFrom(row.remaining_stock))).toString(),
   }));
 }
 
@@ -187,7 +198,7 @@ export async function getItemStockMovements(
 ) {
   await ensureItem(businessId, itemId);
 
-  return prisma.stock_movements.findMany({
+  const movements = await prisma.stock_movements.findMany({
     where: { business_id: businessId, item_id: itemId },
     include: {
       bills: { select: { bill_number: true } },
@@ -195,5 +206,68 @@ export async function getItemStockMovements(
     },
     // Newest first; each row carries its own stored balance_after.
     orderBy: [{ transaction_at: "desc" }, { id: "desc" }],
+  });
+
+  // Same floor-at-0 display rule as getStockTally's remaining_stock —
+  // the row's own quantity_in/quantity_out stay exactly as recorded
+  // (the real audit trail); only the running balance shown alongside
+  // it is clamped, so this history view never contradicts the Stock
+  // Tally list it drills into.
+  return movements.map((movement) => ({
+    ...movement,
+    balance_after: Decimal.max(0, decimalFrom(movement.balance_after)),
+  }));
+}
+
+/**
+ * Manually correct an item's current stock — for stock received from
+ * somewhere other than a recorded Import (a previous supplier's
+ * leftover stock, a physical recount, wastage, etc.), or to fix the
+ * display for an item whose remaining stock has drifted negative
+ * because its historical sales predate when import tracking started
+ * (see the floor-at-0 handling in getStockTally/getItemStockMovements
+ * above). The admin enters the *correct current quantity*, not a
+ * +/- delta: this resets the running balance outright, which is both
+ * the simpler mental model ("set it to what's actually on the shelf")
+ * and the only way a single correction can also absorb a historical
+ * negative gap in one step, rather than a small delta disappearing
+ * into it with no visible effect.
+ *
+ * Recorded as its own CORRECTION movement type — never reuses
+ * ADJUSTMENT, which is reserved for cancellation reversals and is
+ * netted out of total_sold; a plain stock correction must only move
+ * remaining_stock, not quietly change the sales total.
+ */
+export async function setItemStock(
+  businessId: bigint,
+  userId: bigint,
+  itemId: bigint,
+  params: { quantity: Decimal | number | string; notes?: string }
+) {
+  await ensureItem(businessId, itemId);
+
+  const targetQuantity = roundQty(decimalFrom(params.quantity));
+  if (targetQuantity.isNegative()) {
+    throw new InventoryError("Stock quantity cannot be negative", 400);
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const currentBalance = await getItemStockBalance(tx, businessId, itemId);
+    const delta = targetQuantity.minus(currentBalance);
+
+    if (delta.isZero()) {
+      throw new InventoryError("Stock is already at that quantity", 409);
+    }
+
+    return recordStockMovement(tx, {
+      businessId,
+      itemId,
+      movementType: "CORRECTION",
+      quantityIn: delta.isPositive() ? delta : 0,
+      quantityOut: delta.isNegative() ? delta.abs() : 0,
+      transactionAt: new Date(),
+      description: params.notes?.trim() || "Manual stock correction",
+      userId,
+    });
   });
 }

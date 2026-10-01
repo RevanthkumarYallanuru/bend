@@ -1,10 +1,11 @@
 import type { NextFunction, Response } from "express";
 
-import { itemIdParamSchema } from "./inventory.validation";
+import { itemIdParamSchema, setItemStockSchema } from "./inventory.validation";
 import {
   InventoryError,
   getItemStockMovements,
   getStockTally,
+  setItemStock,
 } from "./inventory.service";
 
 import { sendXlsx } from "../../utils/xlsx";
@@ -93,6 +94,36 @@ export async function getItemStockMovementsController(
       success: true,
       count: movements.length,
       data: serializeBigInt(movements),
+    });
+  } catch (error) {
+    if (error instanceof InventoryError) {
+      res.status(error.statusCode).json({
+        success: false,
+        message: error.message,
+      });
+      return;
+    }
+    next(error);
+  }
+}
+
+export async function setItemStockController(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const businessId = req.user!.businessId;
+    const userId = req.user!.userId;
+
+    const { id } = itemIdParamSchema.parse({ id: req.params.id });
+    const data = setItemStockSchema.parse(req.body);
+
+    const movement = await setItemStock(businessId, userId, id, data);
+
+    res.status(201).json({
+      success: true,
+      data: serializeBigInt(movement),
     });
   } catch (error) {
     if (error instanceof InventoryError) {
