@@ -664,7 +664,19 @@ export async function getBills(
 
   return prisma.bills.findMany({
     where,
-    include: billInclude,
+    // Deliberately lighter than `billInclude`: the list page (and the
+    // bills XLSX export, the only other caller) only ever reads the
+    // bill's own snapshot fields plus the customer's Telugu name —
+    // never bill_items or payment_allocations. Pulling those in here
+    // too meant every list/export round-tripped 3 extra relations
+    // (with their own nested relations) for data nothing used; the
+    // single-bill lookups (getBillById/getBillByNumber/cancelBill)
+    // still use the full `billInclude`.
+    include: {
+      customers: {
+        select: { telugu_name: true },
+      },
+    },
     orderBy: [{ transaction_at: "desc" }, { id: "desc" }],
   });
 }

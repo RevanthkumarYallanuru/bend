@@ -493,7 +493,11 @@ export async function cancelPayment(
 
 export async function getPayments(
   businessId: bigint,
-  query: ListPaymentsQuery
+  query: ListPaymentsQuery,
+  // Only the XLSX export needs each row's reversal status (it reads
+  // ledger_entries to decide Active vs Reversed); the list page never
+  // does, so that relation is only pulled in when asked for.
+  options: { includeLedgerStatus?: boolean } = {}
 ) {
   const where: Prisma.paymentsWhereInput = {
     business_id: businessId,
@@ -558,7 +562,17 @@ export async function getPayments(
 
   return prisma.payments.findMany({
     where,
-    include: paymentInclude,
+    // Lighter than `paymentInclude`: the list page only ever shows the
+    // customer's name plus the payment's own fields, never
+    // payment_allocations — that's only read from PaymentDetailDialog,
+    // which re-fetches this one payment by id (via getPaymentById,
+    // still using the full `paymentInclude`) rather than reusing a list
+    // row. Fetching it here too meant every list load round-tripped an
+    // extra relation for data nothing used.
+    include: {
+      customers: { select: { english_name: true } },
+      ...(options.includeLedgerStatus ? { ledger_entries: true } : {}),
+    },
     orderBy: [{ payment_at: "desc" }, { id: "desc" }],
   });
 }
@@ -609,7 +623,9 @@ export async function getCustomerPayments(
       business_id: businessId,
       customer_id: customerId,
     },
-    include: paymentInclude,
+    // No include: this panel is already scoped to one known customer
+    // and its table only reads the payment's own fields (number, date,
+    // amount, method) — nothing relational.
     orderBy: [{ payment_at: "desc" }, { id: "desc" }],
   });
 }

@@ -21,7 +21,7 @@ const router = Router();
 
 router.get("/health", async (_req, res, next) => {
   try {
-    await prisma.$queryRaw`SELECT 1`;
+    await prisma.businesses.count();
 
     res.status(200).json({
       success: true,

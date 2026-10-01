@@ -179,7 +179,9 @@ export async function exportPaymentsController(
 
     const query = listPaymentsQuerySchema.parse(req.query);
 
-    const payments = await getPayments(businessId, query);
+    const payments = await getPayments(businessId, query, {
+      includeLedgerStatus: true,
+    });
 
     const rows = payments.map((payment, index) => ({
       sl_no: index + 1,
@@ -190,7 +192,7 @@ export async function exportPaymentsController(
       method: payment.payment_method,
       reference: payment.reference_number ?? "",
       notes: payment.notes ?? "",
-      status: payment.ledger_entries.some(
+      status: payment.ledger_entries!.some(
         (entry) => entry.entry_type === "ADJUSTMENT"
       )
         ? "Reversed"
