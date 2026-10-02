@@ -17,6 +17,17 @@ app.use(express.json());
 
 app.use("/api", routes);
 
+// Anything past here is a path no route matched — without this,
+// Express falls through to its own default HTML 404 page instead of
+// the JSON body every other response (success or error) on this API
+// uses, which the frontend's error handling doesn't expect.
+app.use((_req, res) => {
+  res.status(404).json({
+    success: false,
+    message: "Not found",
+  });
+});
+
 app.use(errorMiddleware);
 
 export default app;
