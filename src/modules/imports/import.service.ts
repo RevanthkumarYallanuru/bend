@@ -155,14 +155,14 @@ export async function getImports(
     where,
     // Lighter than `importInclude`: the list (Imports page and a
     // supplier's Imports panel) only reads suppliers.name,
-    // items.english_name/telugu_name and payables.status — never the
+    // items.english_name/telugu_name and payables.id/status — never the
     // linked payable's own payable_payments history, which is what
     // `importInclude`'s nested include pulls in. There's no separate
     // import detail view that would need it reused from this row.
     include: {
       suppliers: { select: { name: true } },
       items: { select: { english_name: true, telugu_name: true } },
-      payables: { select: { status: true } },
+      payables: { select: { id: true, status: true } },
     },
     orderBy: [{ import_date: "desc" }, { id: "desc" }],
   });

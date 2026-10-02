@@ -301,6 +301,55 @@ async function runInventoryTests() {
       }
     );
 
+    await runTest(
+      "Adjust Stock after a backdated import lands the tally exactly on the new quantity",
+      async () => {
+        // Dated before every other movement, so the latest row's
+        // balance_after (250) no longer equals the summed stock (280).
+        const importRes = await axios.post(
+          `${API_URL}/imports`,
+          {
+            supplier_id: testSupplierId,
+            item_id: testItemId,
+            quantity: 30,
+            unit: "kg",
+            amount: 300,
+            paid_amount: 300,
+            import_date: "2020-01-01",
+          },
+          { headers: authHeaders() }
+        );
+        createdImportIds.push(BigInt(importRes.data.data.id));
+
+        const before = await getTallyRow(testItemId!);
+        if (Number(before.remaining_stock) !== 280) {
+          throw new Error(`Expected remaining_stock 280, got ${before.remaining_stock}`);
+        }
+
+        const res = await axios.post(
+          `${API_URL}/inventory/items/${testItemId}/stock`,
+          { quantity: 100 },
+          { headers: authHeaders() }
+        );
+        if (res.status !== 201 && res.status !== 200) {
+          throw new Error(`Expected 200/201, got ${res.status}`);
+        }
+        if (Number(res.data.data.balance_after) !== 100) {
+          throw new Error(`Expected correction balance_after 100, got ${res.data.data.balance_after}`);
+        }
+
+        const after = await getTallyRow(testItemId!);
+        if (Number(after.remaining_stock) !== 100) {
+          throw new Error(`Expected remaining_stock 100 after correction, got ${after.remaining_stock}`);
+        }
+        if (Number(after.total_imported) !== 280 || Number(after.total_sold) !== 0) {
+          throw new Error(
+            `Correction must not change imported/sold totals, got ${after.total_imported}/${after.total_sold}`
+          );
+        }
+      }
+    );
+
     await runTest("Reject unauthenticated access to stock tally", async () => {
       try {
         await axios.get(`${API_URL}/inventory/tally`);

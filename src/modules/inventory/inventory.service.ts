@@ -66,13 +66,14 @@ export async function recordStockMovement(
     transactionAt: Date;
     description?: string;
     userId: bigint;
+    /** Balance to append to, when the caller has already read it
+     * (setItemStock). Defaults to getItemStockBalance. */
+    previousBalance?: Decimal;
   }
 ) {
-  const previousBalance = await getItemStockBalance(
-    client,
-    params.businessId,
-    params.itemId
-  );
+  const previousBalance =
+    params.previousBalance ??
+    (await getItemStockBalance(client, params.businessId, params.itemId));
 
   const quantityIn = roundQty(decimalFrom(params.quantityIn ?? 0));
   const quantityOut = roundQty(decimalFrom(params.quantityOut ?? 0));
@@ -252,7 +253,20 @@ export async function setItemStock(
   }
 
   return prisma.$transaction(async (tx) => {
-    const currentBalance = await getItemStockBalance(tx, businessId, itemId);
+    // Sum of every movement — the same figure getStockTally shows as
+    // remaining_stock — not getItemStockBalance's latest-row
+    // balance_after. Those differ when a movement was entered with an
+    // earlier date than ones already recorded (a backdated import), and
+    // a correction must land the Stock Tally exactly on targetQuantity.
+    const totals = await tx.stock_movements.aggregate({
+      where: { business_id: businessId, item_id: itemId },
+      _sum: { quantity_in: true, quantity_out: true },
+    });
+    const currentBalance = roundQty(
+      decimalFrom(totals._sum.quantity_in).minus(
+        decimalFrom(totals._sum.quantity_out)
+      )
+    );
     const delta = targetQuantity.minus(currentBalance);
 
     if (delta.isZero()) {
@@ -268,6 +282,9 @@ export async function setItemStock(
       transactionAt: new Date(),
       description: params.notes?.trim() || "Manual stock correction",
       userId,
+      // So this row's balance_after is exactly targetQuantity, and
+      // later sales chain on from the corrected figure.
+      previousBalance: currentBalance,
     });
   });
 }
